@@ -28,6 +28,7 @@ machine.
 - Connector photo upload with embedded project/library storage and display on
   both the topology canvas and WireViz-derived preview
 - YAML download and component-library import/export
+- Native, deterministic BOM CSV export directly from the project model
 - In-browser preview through vendored WireViz, Pyodide, and Graphviz WebAssembly
 - Static deployment with no account, database, application server, or telemetry
 
@@ -48,8 +49,11 @@ machine.
    connection also deletes its termination data.
 7. Use the top-bar file controls to create, open, or download an editable
    `.wireform.json` project, or import an existing `.yml`/`.yaml` WireViz file.
-8. Review the generated WireViz preview or YAML in the lower panel.
-9. Resolve validation errors and choose **Download YAML**.
+8. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
+   includes component housings, modeled wire/cable quantities, contacts, seals,
+   and manual connector accessories.
+9. Review the generated WireViz preview or YAML in the lower panel.
+10. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -63,6 +67,12 @@ connection. WireViz has no per-pin contact assignment, so YAML export groups
 identical contacts and seals into each connector's `additional_components` with
 explicit quantities. Strip length, tooling, and termination notes remain
 WireForm-native manufacturing data and are retained in `.wireform.json` files.
+
+Native BOM export runs entirely in the browser and does not use WireViz YAML,
+Python, Graphviz, or a backend. Cable and wire lengths are normalized to meters;
+multiconductor cable length is counted once, while loose bundle conductors are
+summed. Strip length, tooling, and termination notes are manufacturing metadata
+and do not become purchasing line items.
 
 ## Local development
 

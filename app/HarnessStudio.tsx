@@ -21,6 +21,7 @@ import {
   Eye,
   FileCode2,
   FilePlus2,
+  FileSpreadsheet,
   FileUp,
   FolderOpen,
   GitBranch,
@@ -43,6 +44,11 @@ import {
   ZoomOut,
 } from "lucide-react";
 import YAML from "yaml";
+import {
+  bomFilenameForTitle,
+  buildBomRows,
+  serializeBomCsv,
+} from "./bom";
 import { prepareConnectorPhoto } from "./images";
 import {
   componentToTemplate,
@@ -1515,6 +1521,20 @@ export function HarnessStudio() {
     setNotice("Editable WireForm project downloaded.");
   };
 
+  const downloadBom = () => {
+    const rows = buildBomRows(project);
+    downloadText(
+      serializeBomCsv(rows),
+      bomFilenameForTitle(project.title),
+      "text/csv;charset=utf-8",
+    );
+    setNotice(
+      rows.length
+        ? `BOM CSV downloaded with ${rows.length} line item${rows.length === 1 ? "" : "s"}.`
+        : "Header-only BOM CSV downloaded; this harness has no BOM items.",
+    );
+  };
+
   const openProjectFile = async (file: File) => {
     try {
       const parsed = parseProjectFile(await file.text());
@@ -1905,6 +1925,14 @@ export function HarnessStudio() {
             title="Download editable WireForm project"
           >
             <Save size={16} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={downloadBom}
+            aria-label="Export BOM CSV"
+            title="Export native BOM CSV"
+          >
+            <FileSpreadsheet size={16} />
           </button>
           <button
             className="icon-button"
