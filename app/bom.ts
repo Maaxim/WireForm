@@ -397,7 +397,7 @@ export function buildBomRows(project: HarnessProject) {
   return sortBomRows(aggregateContributions(contributions));
 }
 
-function formatQuantity(quantity: number) {
+export function formatBomQuantity(quantity: number) {
   return roundedQuantity(quantity).toString();
 }
 
@@ -416,7 +416,7 @@ export function serializeBomCsv(rows: BomRow[]) {
         row.manufacturer,
         row.mpn,
         row.description,
-        formatQuantity(row.quantity),
+        formatBomQuantity(row.quantity),
         row.unit,
         [...row.designators].sort(naturalCompare).join(", "),
         row.notes,

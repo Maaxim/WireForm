@@ -22,6 +22,7 @@ import {
   FileCode2,
   FilePlus2,
   FileSpreadsheet,
+  FileText,
   FileUp,
   FolderOpen,
   GitBranch,
@@ -49,6 +50,11 @@ import {
   buildBomRows,
   serializeBomCsv,
 } from "./bom";
+import {
+  buildHarnessReportModel,
+  htmlReportFilenameForTitle,
+  renderHarnessReportHtml,
+} from "./html-report";
 import { prepareConnectorPhoto } from "./images";
 import {
   componentToTemplate,
@@ -142,6 +148,12 @@ interface PreviewMessage {
     graphviz: string;
   };
   message?: string;
+}
+
+interface PendingReportRender {
+  resolve: (svg: string) => void;
+  reject: (error: Error) => void;
+  timeout: number;
 }
 
 const NODE_WIDTH = 224;
@@ -716,6 +728,7 @@ export function HarnessStudio() {
     "loading" | "saving" | "saved" | "error"
   >("loading");
   const [dirty, setDirty] = useState(false);
+  const [reportExporting, setReportExporting] = useState(false);
   const [libraries, setLibraries] = useState<LibraryCollection>(() =>
     createLibraryCollection(),
   );
@@ -730,6 +743,10 @@ export function HarnessStudio() {
   const futureRef = useRef<HarnessProject[]>([]);
   const workerRef = useRef<Worker | null>(null);
   const previewRequestRef = useRef(0);
+  const reportRequestRef = useRef(0);
+  const pendingReportRendersRef = useRef(
+    new Map<string, PendingReportRender>(),
+  );
   const libraryInputRef = useRef<HTMLInputElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const yamlInputRef = useRef<HTMLInputElement | null>(null);
@@ -1071,6 +1088,21 @@ export function HarnessStudio() {
         setRuntimeVersions(message.versions);
         return;
       }
+      const pendingReport = message.requestId
+        ? pendingReportRendersRef.current.get(message.requestId)
+        : undefined;
+      if (pendingReport) {
+        window.clearTimeout(pendingReport.timeout);
+        pendingReportRendersRef.current.delete(message.requestId!);
+        if (message.type === "result" && message.svg) {
+          pendingReport.resolve(message.svg);
+        } else {
+          pendingReport.reject(
+            new Error(message.message || "WireViz could not render this harness."),
+          );
+        }
+        return;
+      }
       if (
         message.requestId !==
         `preview-${previewRequestRef.current.toString()}`
@@ -1089,8 +1121,18 @@ export function HarnessStudio() {
     worker.onerror = () => {
       setPreviewStatus("error");
       setPreviewMessage("The local rendering worker stopped unexpectedly.");
+      for (const pending of pendingReportRendersRef.current.values()) {
+        window.clearTimeout(pending.timeout);
+        pending.reject(new Error("The local rendering worker stopped unexpectedly."));
+      }
+      pendingReportRendersRef.current.clear();
     };
     return () => {
+      for (const pending of pendingReportRendersRef.current.values()) {
+        window.clearTimeout(pending.timeout);
+        pending.reject(new Error("The local rendering worker was stopped."));
+      }
+      pendingReportRendersRef.current.clear();
       worker.terminate();
       workerRef.current = null;
     };
@@ -1535,6 +1577,66 @@ export function HarnessStudio() {
     );
   };
 
+  const requestReportDiagram = () => {
+    const worker = workerRef.current;
+    if (!worker) {
+      return Promise.reject(
+        new Error("The local WireViz renderer is not available yet."),
+      );
+    }
+    reportRequestRef.current += 1;
+    const requestId = `report-${reportRequestRef.current.toString()}`;
+    return new Promise<string>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        pendingReportRendersRef.current.delete(requestId);
+        reject(new Error("The harness diagram did not finish rendering."));
+      }, 180_000);
+      pendingReportRendersRef.current.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+      });
+      worker.postMessage({
+        type: "render",
+        requestId,
+        assetBase: new URL(".", document.baseURI).href,
+        document: wirevizDocument,
+        images: previewImages,
+      });
+    });
+  };
+
+  const downloadHtmlReport = async () => {
+    if (validation.errors.length) {
+      setNotice("Resolve validation errors before exporting an HTML report.");
+      return;
+    }
+    setReportExporting(true);
+    setNotice("Rendering the self-contained HTML harness report…");
+    try {
+      const diagramSvg = await requestReportDiagram();
+      const report = buildHarnessReportModel(
+        project,
+        diagramSvg,
+        validation.warnings,
+      );
+      downloadText(
+        renderHarnessReportHtml(report),
+        htmlReportFilenameForTitle(project.title),
+        "text/html;charset=utf-8",
+      );
+      setNotice("Self-contained HTML harness report downloaded.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? `HTML report export failed: ${error.message}`
+          : "The HTML report could not be generated.",
+      );
+    } finally {
+      setReportExporting(false);
+    }
+  };
+
   const openProjectFile = async (file: File) => {
     try {
       const parsed = parseProjectFile(await file.text());
@@ -1933,6 +2035,19 @@ export function HarnessStudio() {
             title="Export native BOM CSV"
           >
             <FileSpreadsheet size={16} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => void downloadHtmlReport()}
+            disabled={reportExporting}
+            aria-label={reportExporting ? "Generating HTML report" : "Export HTML report"}
+            title="Export self-contained HTML harness report"
+          >
+            {reportExporting ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <FileText size={16} />
+            )}
           </button>
           <button
             className="icon-button"

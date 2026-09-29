@@ -29,6 +29,8 @@ machine.
   both the topology canvas and WireViz-derived preview
 - YAML download and component-library import/export
 - Native, deterministic BOM CSV export directly from the project model
+- Self-contained HTML harness report export with an inline vector diagram,
+  connector pinouts, termination data, BOM, and print styling
 - In-browser preview through vendored WireViz, Pyodide, and Graphviz WebAssembly
 - Static deployment with no account, database, application server, or telemetry
 
@@ -52,8 +54,11 @@ machine.
 8. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
-9. Review the generated WireViz preview or YAML in the lower panel.
-10. Resolve validation errors and choose **Download YAML**.
+9. Choose the document icon to export a self-contained HTML engineering report.
+   The report opens offline, includes the vector diagram and embedded connector
+   photos, and is styled for browser printing or **Save as PDF**.
+10. Review the generated WireViz preview or YAML in the lower panel.
+11. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -73,6 +78,11 @@ Python, Graphviz, or a backend. Cable and wire lengths are normalized to meters;
 multiconductor cable length is counted once, while loose bundle conductors are
 summed. Strip length, tooling, and termination notes are manufacturing metadata
 and do not become purchasing line items.
+
+The HTML report is generated documentation and works independently after it is
+downloaded; it contains no external styles, scripts, images, or runtime service
+dependencies. Continue editing the corresponding `.wireform.json` project,
+which remains the authoritative editable source.
 
 ## Local development
 
