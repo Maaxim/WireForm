@@ -63,15 +63,18 @@ import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   PROJECT_SCHEMA_VERSION,
+  cloneProject,
   componentGroup,
   createEmptyProject,
   makeComponent,
   parseProjectFile,
+  remapTopologyLink,
   serializeProjectFile,
   type ComponentKind,
   type HarnessComponent,
   type HarnessProject,
   type PortRef,
+  type TerminationPart,
   type TopologyLink,
 } from "./model";
 import {
@@ -81,6 +84,16 @@ import {
   writeLocalDocument,
 } from "./storage";
 import { WIREVIZ_VERSION } from "./vendor";
+import {
+  collectConnectorAdditionalComponents,
+  compactWireTermination,
+  findConnectorPinLink,
+  getTerminationPartLabel,
+  hasWireTerminationData,
+  validateTerminationMetadata,
+  type TerminationField,
+  type TerminationPartField,
+} from "./termination";
 import {
   importWireVizYaml,
   type WireVizImportCandidate,
@@ -307,10 +320,6 @@ function createStarterProject(): HarnessProject {
   };
 }
 
-function cloneProject(project: HarnessProject): HarnessProject {
-  return structuredClone(project);
-}
-
 function listForCount(values: string[], count: number, fallback: string) {
   return Array.from({ length: count }, (_, index) => values[index] ?? fallback);
 }
@@ -439,6 +448,13 @@ function buildWireVizDocument(project: HarnessProject) {
     if (node.supplier) connector.supplier = node.supplier;
     if (node.spn) connector.spn = node.spn;
     if (node.notes) connector.notes = node.notes;
+    const additionalComponents = collectConnectorAdditionalComponents(
+      project,
+      node.id,
+    );
+    if (additionalComponents.length) {
+      connector.additional_components = additionalComponents;
+    }
     connectors[node.designator] = connector;
   }
 
@@ -572,6 +588,34 @@ function validateProject(project: HarnessProject): ValidationResult {
   if (!project.title.trim()) errors.push("Harness title is required.");
   if (project.components.length === 0) warnings.push("The canvas is empty.");
   if (project.links.length === 0) warnings.push("The harness has no connections.");
+
+  warnings.push(...validateTerminationMetadata(project));
+
+  for (const link of project.links) {
+    for (const endpoint of [link.from, link.to]) {
+      const node = project.components.find(
+        (component) => component.id === endpoint.nodeId,
+      );
+      const ordinal = parsePortNumber(endpoint.portId);
+      const valid =
+        node &&
+        ((endpoint.portId.startsWith("pin:") &&
+          CONNECTOR_KINDS.includes(node.kind) &&
+          ordinal >= 1 &&
+          ordinal <= node.pinCount) ||
+          (endpoint.portId.startsWith("wire:") &&
+            CABLE_KINDS.includes(node.kind) &&
+            ordinal >= 1 &&
+            ordinal <= node.wireCount) ||
+          (endpoint.portId === "shield" &&
+            CABLE_KINDS.includes(node.kind) &&
+            node.shield));
+      if (!valid) {
+        errors.push(`Connection ${link.id} has a dangling or invalid endpoint.`);
+        break;
+      }
+    }
+  }
 
   for (const node of project.components.filter((component) =>
     CABLE_KINDS.includes(component.kind),
@@ -845,18 +889,9 @@ export function HarnessStudio() {
       wireLabels: [...component.wireLabels],
       colors: [...component.colors],
     }));
-    const pastedLinks = clipboard.links.map((link, index) => ({
-      ...link,
-      id: `${idPrefix}-link-${index}`,
-      from: {
-        ...link.from,
-        nodeId: idMap.get(link.from.nodeId) as string,
-      },
-      to: {
-        ...link.to,
-        nodeId: idMap.get(link.to.nodeId) as string,
-      },
-    }));
+    const pastedLinks = clipboard.links.map((link, index) =>
+      remapTopologyLink(link, `${idPrefix}-link-${index}`, idMap),
+    );
     const next = cloneProject(project);
     next.components.push(...pastedComponents);
     next.links.push(...pastedLinks);
@@ -1097,21 +1132,108 @@ export function HarnessStudio() {
     );
   };
 
+  const updateTerminationPart = (
+    linkId: string,
+    partName: "contact" | "seal",
+    field: TerminationPartField,
+    value: string,
+  ) => {
+    updateProject((draft) => {
+      const link = draft.links.find((candidate) => candidate.id === linkId);
+      if (!link) return;
+      const termination = structuredClone(link.termination ?? {});
+      termination[partName] = {
+        ...(termination[partName] ?? {}),
+        [field]: value,
+      };
+      link.termination = compactWireTermination(termination);
+    });
+  };
+
+  const updateTerminationField = (
+    linkId: string,
+    field: TerminationField,
+    value: string,
+  ) => {
+    updateProject((draft) => {
+      const link = draft.links.find((candidate) => candidate.id === linkId);
+      if (!link) return;
+      link.termination = compactWireTermination({
+        ...(link.termination ?? {}),
+        [field]: value,
+      });
+    });
+  };
+
+  const clearTermination = (linkId: string) => {
+    updateProject(
+      (draft) => {
+        const link = draft.links.find((candidate) => candidate.id === linkId);
+        if (link) delete link.termination;
+      },
+      "Termination data removed from the connection.",
+    );
+  };
+
+  const applyContactToConnector = (connectorId: string, sourceLinkId: string) => {
+    const sourceContact = project.links.find(
+      (link) => link.id === sourceLinkId,
+    )?.termination?.contact;
+    if (!sourceContact) {
+      setNotice("Enter contact information before applying it to other pins.");
+      return;
+    }
+    let applied = 0;
+    updateProject(
+      (draft) => {
+        for (const link of draft.links) {
+          const attached = [link.from, link.to].some(
+            (port) =>
+              port.nodeId === connectorId && port.portId.startsWith("pin:"),
+          );
+          if (!attached) continue;
+          link.termination = compactWireTermination({
+            ...(link.termination ?? {}),
+            contact: structuredClone(sourceContact),
+          });
+          applied += 1;
+        }
+      },
+      "Contact copied to all connected pins.",
+    );
+    if (applied === 0) {
+      setNotice("This connector has no connected pins.");
+    }
+  };
+
   const updateCount = (count: number) => {
     if (!selected) return;
     const nextCount = Math.max(1, Math.min(64, Number.isFinite(count) ? count : 1));
-    if (CONNECTOR_KINDS.includes(selected.kind)) {
-      updateSelected({
-        pinCount: nextCount,
-        pinLabels: listForCount(selected.pinLabels, nextCount, ""),
-      });
-    } else {
-      updateSelected({
-        wireCount: nextCount,
-        wireLabels: listForCount(selected.wireLabels, nextCount, ""),
-        colors: listForCount(selected.colors, nextCount, "BK"),
-      });
-    }
+    updateProject((draft) => {
+      const node = draft.components.find(
+        (component) => component.id === selected.id,
+      );
+      if (!node) return;
+      const isConnector = CONNECTOR_KINDS.includes(node.kind);
+      if (isConnector) {
+        node.pinCount = nextCount;
+        node.pinLabels = listForCount(node.pinLabels, nextCount, "");
+      } else {
+        node.wireCount = nextCount;
+        node.wireLabels = listForCount(node.wireLabels, nextCount, "");
+        node.colors = listForCount(node.colors, nextCount, "BK");
+      }
+      draft.links = draft.links.filter((link) =>
+        [link.from, link.to].every((port) => {
+          if (port.nodeId !== node.id) return true;
+          const expectedPrefix = isConnector ? "pin:" : "wire:";
+          return (
+            !port.portId.startsWith(expectedPrefix) ||
+            parsePortNumber(port.portId) <= nextCount
+          );
+        }),
+      );
+    });
   };
 
   const addComponent = (kind: ComponentKind) => {
@@ -2159,6 +2281,19 @@ export function HarnessStudio() {
                             !isShield && CABLE_KINDS.includes(node.kind)
                               ? wireColor(node.colors[index] ?? "BK")
                               : undefined;
+                           const terminationLink = CONNECTOR_KINDS.includes(
+                             node.kind,
+                           )
+                             ? findConnectorPinLink(project, node.id, number)
+                             : undefined;
+                           const terminationLabel =
+                             getTerminationPartLabel(
+                               terminationLink?.termination?.contact,
+                             ) ||
+                             getTerminationPartLabel(
+                               terminationLink?.termination?.seal,
+                             ) ||
+                             "Termination manufacturing data";
                           return (
                             <div className="node-row" key={`${node.id}-${portId}`}>
                               <button
@@ -2208,6 +2343,17 @@ export function HarnessStudio() {
                                 {isShield ? <Shield size={11} /> : number}
                               </span>
                               <span className="row-label">{label}</span>
+                               {hasWireTerminationData(
+                                 terminationLink?.termination,
+                               ) && (
+                                 <span
+                                   className="termination-badge"
+                                   title={terminationLabel}
+                                   aria-label={`Termination: ${terminationLabel}`}
+                                 >
+                                   T
+                                 </span>
+                               )}
                               {!isShield && CABLE_KINDS.includes(node.kind) && (
                                 <small>{node.colors[index] || "BK"}</small>
                               )}
@@ -2391,12 +2537,15 @@ export function HarnessStudio() {
                             const changingGroup =
                               componentGroup(kind) !==
                               componentGroup(selected.kind);
-                            updateSelected({
+                            const patch: Partial<HarnessComponent> = {
                               kind,
                               photo:
                                 kind === "connector"
                                   ? selected.photo
                                   : undefined,
+                              additionalComponents: CONNECTOR_KINDS.includes(kind)
+                                ? selected.additionalComponents
+                                : undefined,
                               pinCount: CONNECTOR_KINDS.includes(kind)
                                 ? changingGroup
                                   ? 4
@@ -2409,7 +2558,22 @@ export function HarnessStudio() {
                                     : 4
                                   : selected.wireCount
                                 : 0,
-                            });
+                            };
+                            if (changingGroup) {
+                              updateProject((draft) => {
+                                const node = draft.components.find(
+                                  (component) => component.id === selected.id,
+                                );
+                                if (node) Object.assign(node, patch);
+                                draft.links = draft.links.filter(
+                                  (link) =>
+                                    link.from.nodeId !== selected.id &&
+                                    link.to.nodeId !== selected.id,
+                                );
+                              });
+                            } else {
+                              updateSelected(patch);
+                            }
                           }}
                         >
                           {(Object.keys(KIND_META) as ComponentKind[]).map(
@@ -2660,15 +2824,42 @@ export function HarnessStudio() {
                         <input
                           type="checkbox"
                           checked={selected.shield}
-                          onChange={(event) =>
-                            updateSelected({ shield: event.target.checked })
-                          }
+                          onChange={(event) => {
+                            const shield = event.target.checked;
+                            updateProject((draft) => {
+                              const node = draft.components.find(
+                                (component) => component.id === selected.id,
+                              );
+                              if (node) node.shield = shield;
+                              if (!shield) {
+                                draft.links = draft.links.filter(
+                                  (link) =>
+                                    ![link.from, link.to].some(
+                                      (port) =>
+                                        port.nodeId === selected.id &&
+                                        port.portId === "shield",
+                                    ),
+                                );
+                              }
+                            });
+                          }}
                         />
                         <span className="switch" />
                       </label>
                     </>
                   )}
                 </div>
+
+                {CONNECTOR_KINDS.includes(selected.kind) && (
+                  <PinTerminationsSection
+                    project={project}
+                    connector={selected}
+                    onPartChange={updateTerminationPart}
+                    onFieldChange={updateTerminationField}
+                    onClear={clearTermination}
+                    onApplyContact={applyContactToConnector}
+                  />
+                )}
 
                 <details className="property-section collapsible" open>
                   <summary>
@@ -3140,5 +3331,239 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function connectedEndpointLabel(
+  project: HarnessProject,
+  connectorId: string,
+  link: TopologyLink,
+) {
+  const endpoint = oppositePort(link, connectorId);
+  const component = project.components.find(
+    (candidate) => candidate.id === endpoint.nodeId,
+  );
+  if (!component) return "Invalid connection";
+  const port = endpoint.portId === "shield" ? "shield" : parsePortNumber(endpoint.portId);
+  return `${component.designator}:${port}`;
+}
+
+function PinTerminationsSection({
+  project,
+  connector,
+  onPartChange,
+  onFieldChange,
+  onClear,
+  onApplyContact,
+}: {
+  project: HarnessProject;
+  connector: HarnessComponent;
+  onPartChange: (
+    linkId: string,
+    partName: "contact" | "seal",
+    field: TerminationPartField,
+    value: string,
+  ) => void;
+  onFieldChange: (
+    linkId: string,
+    field: TerminationField,
+    value: string,
+  ) => void;
+  onClear: (linkId: string) => void;
+  onApplyContact: (connectorId: string, linkId: string) => void;
+}) {
+  return (
+    <div className="property-section termination-section">
+      <h3>Pin terminations</h3>
+      <p className="section-note">
+        Contact data belongs to the physical pin-to-conductor connection.
+      </p>
+      <div className="termination-list">
+        {Array.from({ length: connector.pinCount }, (_, index) => {
+          const pin = index + 1;
+          const link = findConnectorPinLink(project, connector.id, pin);
+          const label = connector.pinLabels[index] || "â€”";
+          if (!link) {
+            return (
+              <div className="termination-empty-row" key={`${connector.id}-${pin}`}>
+                <strong>{pin}</strong>
+                <span>{label}</span>
+                <small>Unconnected</small>
+              </div>
+            );
+          }
+          const contactLabel =
+            getTerminationPartLabel(link.termination?.contact) || "Add contact";
+          return (
+            <details className="termination-row" key={link.id}>
+              <summary>
+                <strong>{pin}</strong>
+                <span className="termination-pin-label">{label}</span>
+                <small>{connectedEndpointLabel(project, connector.id, link)}</small>
+                <span
+                  className={
+                    link.termination?.contact
+                      ? "termination-contact assigned"
+                      : "termination-contact"
+                  }
+                  title={contactLabel}
+                >
+                  {contactLabel}
+                </span>
+                <ChevronDown size={13} />
+              </summary>
+              <div className="termination-editor">
+                <TerminationPartEditor
+                  title="Contact"
+                  defaultType="Crimp contact"
+                  part={link.termination?.contact}
+                  onChange={(field, value) =>
+                    onPartChange(link.id, "contact", field, value)
+                  }
+                />
+
+                <details className="termination-seal">
+                  <summary>
+                    Optional wire seal
+                    <ChevronDown size={12} />
+                  </summary>
+                  <TerminationPartEditor
+                    title="Seal"
+                    defaultType="Wire seal"
+                    part={link.termination?.seal}
+                    onChange={(field, value) =>
+                      onPartChange(link.id, "seal", field, value)
+                    }
+                  />
+                </details>
+
+                <div className="field-row">
+                  <Field label="Strip length" hint="Include unit">
+                    <input
+                      value={link.termination?.stripLength ?? ""}
+                      onChange={(event) =>
+                        onFieldChange(link.id, "stripLength", event.target.value)
+                      }
+                      placeholder="5 mm"
+                    />
+                  </Field>
+                  <Field label="Tooling / applicator">
+                    <input
+                      value={link.termination?.tooling ?? ""}
+                      onChange={(event) =>
+                        onFieldChange(link.id, "tooling", event.target.value)
+                      }
+                      placeholder="Optional"
+                    />
+                  </Field>
+                </div>
+                <Field label="Termination notes">
+                  <textarea
+                    rows={2}
+                    value={link.termination?.notes ?? ""}
+                    onChange={(event) =>
+                      onFieldChange(link.id, "notes", event.target.value)
+                    }
+                    placeholder="Optional assembly notes"
+                  />
+                </Field>
+                <div className="termination-actions">
+                  <button
+                    type="button"
+                    onClick={() => onApplyContact(connector.id, link.id)}
+                    disabled={!link.termination?.contact}
+                  >
+                    <Copy size={13} />
+                    Apply contact to connected pins
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => onClear(link.id)}
+                    disabled={!hasWireTerminationData(link.termination)}
+                  >
+                    <Trash2 size={13} />
+                    Clear termination
+                  </button>
+                </div>
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TerminationPartEditor({
+  title,
+  defaultType,
+  part,
+  onChange,
+}: {
+  title: string;
+  defaultType: string;
+  part: TerminationPart | undefined;
+  onChange: (field: TerminationPartField, value: string) => void;
+}) {
+  return (
+    <div className="termination-part-editor">
+      <strong>{title}</strong>
+      <div className="field-row">
+        <Field label="Type">
+          <input
+            value={part?.type ?? ""}
+            onChange={(event) => onChange("type", event.target.value)}
+            placeholder={defaultType}
+          />
+        </Field>
+        <Field label="Description / subtype">
+          <input
+            value={part?.subtype ?? ""}
+            onChange={(event) => onChange("subtype", event.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+      </div>
+      <Field label="Internal part number">
+        <input
+          value={part?.pn ?? ""}
+          onChange={(event) => onChange("pn", event.target.value)}
+          placeholder="Optional"
+        />
+      </Field>
+      <div className="field-row">
+        <Field label="Manufacturer">
+          <input
+            value={part?.manufacturer ?? ""}
+            onChange={(event) => onChange("manufacturer", event.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+        <Field label="Manufacturer P/N">
+          <input
+            value={part?.mpn ?? ""}
+            onChange={(event) => onChange("mpn", event.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+      </div>
+      <div className="field-row">
+        <Field label="Supplier">
+          <input
+            value={part?.supplier ?? ""}
+            onChange={(event) => onChange("supplier", event.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+        <Field label="Supplier P/N">
+          <input
+            value={part?.spn ?? ""}
+            onChange={(event) => onChange("spn", event.target.value)}
+            placeholder="Optional"
+          />
+        </Field>
+      </div>
+    </div>
   );
 }

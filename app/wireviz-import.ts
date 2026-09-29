@@ -5,6 +5,7 @@ import {
   PROJECT_SCHEMA_VERSION,
   createEmptyProject,
   makeComponent,
+  normalizeConnectorAdditionalComponents,
   type ComponentKind,
   type HarnessComponent,
   type HarnessProject,
@@ -55,6 +56,7 @@ const SUPPORTED_CONNECTOR_FIELDS = new Set([
   "show_pincount",
   "hide_disconnected_pins",
   "image",
+  "additional_components",
 ]);
 const SUPPORTED_CABLE_FIELDS = new Set([
   "category",
@@ -71,6 +73,19 @@ const SUPPORTED_CABLE_FIELDS = new Set([
   "spn",
   "notes",
   "image",
+]);
+const SUPPORTED_ADDITIONAL_COMPONENT_FIELDS = new Set([
+  "type",
+  "subtype",
+  "pn",
+  "manufacturer",
+  "mpn",
+  "supplier",
+  "spn",
+  "qty",
+  "unit",
+  "qty_multiplier",
+  "bgcolor",
 ]);
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -103,6 +118,43 @@ function listValue(value: unknown) {
 
 function listForCount(values: string[], count: number, fallback: string) {
   return Array.from({ length: count }, (_, index) => values[index] ?? fallback);
+}
+
+function importedAdditionalComponents(
+  value: unknown,
+  designator: string,
+  report: WireVizImportReport,
+) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    report.unsupported.push(
+      `${designator}: connector additional_components is not a list.`,
+    );
+    return undefined;
+  }
+  for (const [index, entry] of value.entries()) {
+    const component = recordValue(entry);
+    if (!component) {
+      report.unsupported.push(
+        `${designator}: additional component ${index + 1} is not a mapping.`,
+      );
+      continue;
+    }
+    for (const key of Object.keys(component)) {
+      if (!SUPPORTED_ADDITIONAL_COMPONENT_FIELDS.has(key)) {
+        report.unsupported.push(
+          `${designator}: additional component ${index + 1} field "${key}".`,
+        );
+      }
+    }
+  }
+  const components = normalizeConnectorAdditionalComponents(value);
+  if (components?.length) {
+    report.warnings.push(
+      `${designator}: connector additional components were preserved, but no per-pin termination assignments were inferred.`,
+    );
+  }
+  return components;
 }
 
 function stableId(prefix: string, designator: string, index: number) {
@@ -239,6 +291,12 @@ function importedConnector(
   component.supplier = textValue(attributes.supplier);
   component.spn = textValue(attributes.spn);
   component.notes = textValue(attributes.notes);
+  const additionalComponents = importedAdditionalComponents(
+    attributes.additional_components,
+    designator,
+    report,
+  );
+  if (additionalComponents) component.additionalComponents = additionalComponents;
   component.x = 80;
   component.y = 90 + index * 150;
 

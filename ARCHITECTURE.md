@@ -240,6 +240,15 @@ interface TopologyLink {
 
 The graph validator restricts which port types can be linked. Normal termination paths alternate between connector-like and cable-like entities. Direct connector mating is represented separately and compiled to WireViz arrow syntax.
 
+The implemented project schema also allows a topology link to carry optional
+per-end termination metadata: a contact part, wire seal, strip length, tooling,
+and notes. This is the authoritative physical assignment. The WireViz export
+adapter deterministically groups identical contact and seal parts into the
+owning connector's `additional_components` entries with explicit quantities;
+it does not move the assignment into the connector model. Connector-level
+additional components imported from WireViz are preserved separately and are
+not guessed onto individual pins.
+
 ## 9. Canvas and interaction architecture
 
 ### 9.1 Layout

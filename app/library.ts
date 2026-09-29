@@ -2,6 +2,7 @@ import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   makeComponent,
+  normalizeConnectorAdditionalComponents,
   type ComponentKind,
   type HarnessComponent,
 } from "./model.ts";
@@ -219,6 +220,9 @@ function normalizedTemplate(
           alt: textValue(photoSource?.alt, "Connector photo", 500),
         }
       : undefined;
+  const additionalComponents = CONNECTOR_KINDS.includes(kind)
+    ? normalizeConnectorAdditionalComponents(componentSource.additionalComponents)
+    : undefined;
   const timestamp = now();
   return {
     id: textValue(source.id, createId("template"), 240),
@@ -258,6 +262,7 @@ function normalizedTemplate(
       spn: textValue(componentSource.spn, "", 500),
       notes: textValue(componentSource.notes, "", 4_000),
       ...(photo ? { photo } : {}),
+      ...(additionalComponents ? { additionalComponents } : {}),
     },
     createdAt: textValue(source.createdAt, timestamp, 80),
     updatedAt: textValue(source.updatedAt, timestamp, 80),

@@ -754,6 +754,19 @@ select:focus-visible {
   font-size: 8px;
 }
 
+.termination-badge {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  color: #176b70;
+  background: #dff2ef;
+  border: 1px solid #aad7d2;
+  border-radius: 50%;
+  font-size: 7px;
+  font-weight: 800;
+}
+
 .port {
   position: absolute;
   top: 50%;
@@ -939,6 +952,150 @@ select:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.section-note {
+  margin: -4px 0 10px;
+  color: #7c898e;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.termination-list {
+  display: grid;
+  gap: 5px;
+}
+
+.termination-empty-row,
+.termination-row > summary {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 18px minmax(28px, 0.7fr) minmax(48px, 0.9fr) minmax(0, 1.2fr) 13px;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  color: #405159;
+  background: #f8faf9;
+  border: 1px solid #dce3e2;
+  border-radius: 5px;
+  font-size: 8px;
+}
+
+.termination-empty-row {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  color: #89969a;
+}
+
+.termination-row > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.termination-row > summary::-webkit-details-marker,
+.termination-seal > summary::-webkit-details-marker {
+  display: none;
+}
+
+.termination-row[open] > summary {
+  border-color: #a9d2ce;
+  border-radius: 5px 5px 0 0;
+  background: #eef7f5;
+}
+
+.termination-row[open] > summary > svg,
+.termination-seal[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.termination-pin-label,
+.termination-contact,
+.termination-row > summary small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.termination-row > summary small {
+  color: #78888e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.termination-contact {
+  color: #879499;
+}
+
+.termination-contact.assigned {
+  color: #176b70;
+  font-weight: 700;
+}
+
+.termination-editor {
+  padding: 10px 8px;
+  background: #fbfcfb;
+  border: 1px solid #dce3e2;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+}
+
+.termination-part-editor > strong {
+  display: block;
+  margin: 0 0 8px;
+  color: #4d6067;
+  font-size: 9px;
+}
+
+.termination-seal {
+  margin: 4px 0 10px;
+  border-top: 1px solid #e2e7e6;
+  border-bottom: 1px solid #e2e7e6;
+}
+
+.termination-seal > summary {
+  height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #62737a;
+  font-size: 8px;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+.termination-seal .termination-part-editor {
+  padding-top: 5px;
+}
+
+.termination-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.termination-actions button {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 7px;
+  color: #176b70;
+  background: white;
+  border: 1px solid #bededb;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.termination-actions button.danger {
+  color: #a34e47;
+  border-color: #eed4d0;
+}
+
+.termination-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .designator-row {

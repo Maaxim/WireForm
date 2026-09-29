@@ -1,4 +1,4 @@
-export const PROJECT_SCHEMA_VERSION = 2 as const;
+export const PROJECT_SCHEMA_VERSION = 3 as const;
 export const PROJECT_FILE_FORMAT = "wireform-project";
 
 export type ComponentKind =
@@ -18,6 +18,31 @@ export interface ConnectorPhoto {
   width: number;
   height: number;
   alt: string;
+}
+
+export interface TerminationPart {
+  type?: string;
+  subtype?: string;
+  pn?: string;
+  manufacturer?: string;
+  mpn?: string;
+  supplier?: string;
+  spn?: string;
+}
+
+export interface WireTermination {
+  contact?: TerminationPart;
+  seal?: TerminationPart;
+  stripLength?: string;
+  tooling?: string;
+  notes?: string;
+}
+
+export interface ConnectorAdditionalComponent extends TerminationPart {
+  qty?: number;
+  unit?: string;
+  qtyMultiplier?: "pincount" | "populated" | "unpopulated";
+  bgcolor?: string;
 }
 
 export interface HarnessComponent {
@@ -42,6 +67,7 @@ export interface HarnessComponent {
   spn: string;
   notes: string;
   photo?: ConnectorPhoto;
+  additionalComponents?: ConnectorAdditionalComponent[];
 }
 
 export interface PortRef {
@@ -54,6 +80,7 @@ export interface TopologyLink {
   id: string;
   from: PortRef;
   to: PortRef;
+  termination?: WireTermination;
 }
 
 export interface HarnessProject {
@@ -161,6 +188,89 @@ function normalizedPhoto(value: unknown): ConnectorPhoto | undefined {
   };
 }
 
+function nonEmptyText(value: unknown, max = MAX_TEXT) {
+  const text = textValue(value, "", max);
+  return text.trim() ? text : undefined;
+}
+
+export function normalizeTerminationPart(
+  value: unknown,
+): TerminationPart | undefined {
+  const source = recordValue(value);
+  if (!source) return undefined;
+  const values: Array<[keyof TerminationPart, string | undefined]> = [
+    ["type", nonEmptyText(source.type, 500)],
+    ["subtype", nonEmptyText(source.subtype, 1_000)],
+    ["pn", nonEmptyText(source.pn, 500)],
+    ["manufacturer", nonEmptyText(source.manufacturer, 500)],
+    ["mpn", nonEmptyText(source.mpn, 500)],
+    ["supplier", nonEmptyText(source.supplier, 500)],
+    ["spn", nonEmptyText(source.spn, 500)],
+  ];
+  const part = Object.fromEntries(
+    values.filter((entry): entry is [keyof TerminationPart, string] =>
+      Boolean(entry[1]),
+    ),
+  ) as TerminationPart;
+  return Object.values(part).some(Boolean) ? part : undefined;
+}
+
+export function normalizeWireTermination(
+  value: unknown,
+): WireTermination | undefined {
+  const source = recordValue(value);
+  if (!source) return undefined;
+  const contact = normalizeTerminationPart(source.contact);
+  const seal = normalizeTerminationPart(source.seal);
+  const stripLength = nonEmptyText(source.stripLength, 160);
+  const tooling = nonEmptyText(source.tooling, 1_000);
+  const notes = nonEmptyText(source.notes, MAX_TEXT);
+  const termination: WireTermination = {
+    ...(contact ? { contact } : {}),
+    ...(seal ? { seal } : {}),
+    ...(stripLength ? { stripLength } : {}),
+    ...(tooling ? { tooling } : {}),
+    ...(notes ? { notes } : {}),
+  };
+  return Object.values(termination).some(Boolean) ? termination : undefined;
+}
+
+export function normalizeConnectorAdditionalComponents(
+  value: unknown,
+): ConnectorAdditionalComponent[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const components = value.slice(0, 256).flatMap((entry) => {
+    const source = recordValue(entry);
+    const part = normalizeTerminationPart(entry);
+    if (!source || !part?.type) return [];
+    const rawQuantity = Number(source.qty);
+    const quantity =
+      Number.isFinite(rawQuantity) && rawQuantity > 0
+        ? Math.min(rawQuantity, 1_000_000)
+        : undefined;
+    const multiplier = source.qtyMultiplier ?? source.qty_multiplier;
+    const qtyMultiplier = ["pincount", "populated", "unpopulated"].includes(
+      String(multiplier),
+    )
+      ? (String(multiplier) as ConnectorAdditionalComponent["qtyMultiplier"])
+      : undefined;
+    return [
+      {
+        ...part,
+        ...(quantity !== undefined ? { qty: quantity } : {}),
+        ...(nonEmptyText(source.unit, 80)
+          ? { unit: nonEmptyText(source.unit, 80) }
+          : {}),
+        ...(qtyMultiplier ? { qtyMultiplier } : {}),
+        ...(nonEmptyText(source.bgcolor, 80)
+          ? { bgcolor: nonEmptyText(source.bgcolor, 80) }
+          : {}),
+      },
+    ];
+  });
+  return components.length ? components : undefined;
+}
+
 export function componentGroup(kind: ComponentKind): "connector" | "cable" {
   return CONNECTOR_KINDS.includes(kind) ? "connector" : "cable";
 }
@@ -253,6 +363,9 @@ function normalizeComponent(
     ? Math.round(numberValue(source.wireCount, base.wireCount, 1, MAX_ROWS))
     : 0;
   const photo = kind === "connector" ? normalizedPhoto(source.photo) : undefined;
+  const additionalComponents = CONNECTOR_KINDS.includes(kind)
+    ? normalizeConnectorAdditionalComponents(source.additionalComponents)
+    : undefined;
   return {
     ...base,
     id,
@@ -277,6 +390,7 @@ function normalizeComponent(
     spn: textValue(source.spn, "", 500),
     notes: textValue(source.notes, "", MAX_TEXT),
     ...(photo ? { photo } : {}),
+    ...(additionalComponents ? { additionalComponents } : {}),
   };
 }
 
@@ -353,7 +467,8 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     let id = textValue(source?.id, `link-${index + 1}`, 240);
     if (!id || usedLinkIds.has(id)) id = createId("link");
     usedLinkIds.add(id);
-    return [{ id, from, to }];
+    const termination = normalizeWireTermination(source?.termination);
+    return [{ id, from, to, ...(termination ? { termination } : {}) }];
   });
 
   const project: HarnessProject = {
@@ -394,4 +509,29 @@ export function serializeProjectFile(project: HarnessProject) {
     project,
   };
   return JSON.stringify(file, null, 2);
+}
+
+export function cloneProject(project: HarnessProject): HarnessProject {
+  return structuredClone(project);
+}
+
+export function remapTopologyLink(
+  link: TopologyLink,
+  id: string,
+  nodeIds: ReadonlyMap<string, string>,
+): TopologyLink {
+  return {
+    id,
+    from: {
+      ...link.from,
+      nodeId: nodeIds.get(link.from.nodeId) ?? link.from.nodeId,
+    },
+    to: {
+      ...link.to,
+      nodeId: nodeIds.get(link.to.nodeId) ?? link.to.nodeId,
+    },
+    ...(link.termination
+      ? { termination: structuredClone(link.termination) }
+      : {}),
+  };
 }

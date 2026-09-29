@@ -14,6 +14,7 @@ machine.
 - Draggable topology canvas with connectors, cables, individual wires, bundles,
   splices, and junctions
 - Explicit pin and conductor terminations
+- Per-wire-end contact, seal, strip-length, tooling, and termination notes
 - Wire colors, labels, gauge, length, shields, loops, and BOM fields
 - Hold and drag to select multiple components
 - Move, copy, paste, and delete a component selection
@@ -42,10 +43,13 @@ machine.
 5. Optionally upload a connector photo from the connector inspector. WireForm
    resizes it locally and embeds it in the editable project, user-library
    templates, topology canvas, and local WireViz preview.
-6. Use the top-bar file controls to create, open, or download an editable
+6. For a selected connector, expand **Pin terminations** to assign the contact
+   and optional seal or manufacturing data for each connected pin. Deleting the
+   connection also deletes its termination data.
+7. Use the top-bar file controls to create, open, or download an editable
    `.wireform.json` project, or import an existing `.yml`/`.yaml` WireViz file.
-7. Review the generated WireViz preview or YAML in the lower panel.
-8. Resolve validation errors and choose **Download YAML**.
+8. Review the generated WireViz preview or YAML in the lower panel.
+9. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -53,6 +57,12 @@ a compatibility report before replacing the canvas because comments, aliases,
 formatting, and unsupported WireViz fields cannot all be represented visually.
 Connector photos remain embedded in WireForm project and library files; a YAML
 download does not contain binary image data.
+
+WireForm stores selected contacts on the exact connector-pin/conductor-end
+connection. WireViz has no per-pin contact assignment, so YAML export groups
+identical contacts and seals into each connector's `additional_components` with
+explicit quantities. Strip length, tooling, and termination notes remain
+WireForm-native manufacturing data and are retained in `.wireform.json` files.
 
 ## Local development
 

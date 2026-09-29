@@ -48,6 +48,14 @@ from wireviz.wireviz import parse as wireviz_parse
           type: "Source",
           pincount: 2,
           pinlabels: ["PWR", "GND"],
+          additional_components: [
+            {
+              type: "Crimp contact",
+              manufacturer: "HARTING",
+              mpn: "09 15 200 6224",
+              qty: 2,
+            },
+          ],
           image: {
             src: imagePath,
             width: 80,
