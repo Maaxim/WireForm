@@ -473,7 +473,7 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr) 31px;
+  grid-template-rows: 44px minmax(0, 1fr) auto;
   background: var(--canvas);
 }
 
@@ -802,14 +802,19 @@ select:focus-visible {
   background: #274f61;
 }
 
+.canvas-footer {
+  min-height: 31px;
+  background: #fafbf9;
+  border-top: 1px solid var(--line);
+}
+
 .notice-bar {
+  min-height: 30px;
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 0 12px;
   color: #66777e;
-  background: #fafbf9;
-  border-top: 1px solid var(--line);
   font-size: 9px;
 }
 
@@ -827,6 +832,52 @@ select:focus-visible {
   margin-left: 8px;
   color: var(--warning);
   font-weight: 700;
+}
+
+.topology-issues {
+  max-height: 150px;
+  display: grid;
+  gap: 7px;
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.topology-issue-group {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid;
+  border-radius: 5px;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.topology-issue-group strong {
+  font-size: 9px;
+}
+
+.topology-issue-group ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.topology-issue-group li + li {
+  margin-top: 3px;
+}
+
+.topology-errors {
+  color: #853e39;
+  background: #fff6f4;
+  border-color: #efcbc6;
+}
+
+.topology-warnings {
+  color: #755416;
+  background: #fffaf0;
+  border-color: #ead9ac;
 }
 
 .inspector-heading {

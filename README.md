@@ -20,6 +20,7 @@ machine.
 - Move, copy, paste, and delete a component selection
 - Undo and redo
 - Live validation and deterministic YAML generation
+- Always-visible topology validation details for every blocking issue and warning
 - Versioned editable project files with schema migration
 - IndexedDB autosave and recovery, with a local-storage fallback
 - Existing WireViz YAML import with a compatibility report

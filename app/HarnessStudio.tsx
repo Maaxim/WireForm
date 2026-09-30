@@ -2554,17 +2554,54 @@ export function HarnessStudio() {
             </div>
           </div>
 
-          <div className="notice-bar" role="status">
-            <CircleDot size={14} />
+          <div className="canvas-footer">
+            <div className="notice-bar" role="status">
+              <CircleDot size={14} />
               <span>{notice}</span>
               <span className="selection-help">
                 Drag empty space to select · Shift-click to add · ⌘/Ctrl+C/V
               </span>
               {validation.warnings.length > 0 && (
-              <span className="warning-count">
-                {validation.warnings.length} warning
-                {validation.warnings.length === 1 ? "" : "s"}
-              </span>
+                <span className="warning-count">
+                  {validation.warnings.length} warning
+                  {validation.warnings.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            {(validation.errors.length > 0 ||
+              validation.warnings.length > 0) && (
+              <div
+                className="topology-issues"
+                aria-label="Current topology validation issues"
+                aria-live="polite"
+              >
+                {validation.errors.length > 0 && (
+                  <section className="topology-issue-group topology-errors">
+                    <strong>
+                      {validation.errors.length} blocking issue
+                      {validation.errors.length === 1 ? "" : "s"}
+                    </strong>
+                    <ul>
+                      {validation.errors.map((issue, index) => (
+                        <li key={`error-${index}-${issue}`}>{issue}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {validation.warnings.length > 0 && (
+                  <section className="topology-issue-group topology-warnings">
+                    <strong>
+                      {validation.warnings.length} warning
+                      {validation.warnings.length === 1 ? "" : "s"}
+                    </strong>
+                    <ul>
+                      {validation.warnings.map((warning, index) => (
+                        <li key={`warning-${index}-${warning}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
             )}
           </div>
         </section>
