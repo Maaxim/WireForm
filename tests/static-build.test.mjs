@@ -35,6 +35,10 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Connector photo/);
   assert.match(script, /Pin terminations/);
   assert.match(script, /Apply contact to connected pins/);
+  assert.match(script, /Additional components/);
+  assert.match(script, /Heat shrink/);
+  assert.match(script, /Per total conductor length/);
+  assert.match(script, /Placement \(WireForm only\)/);
   assert.match(script, /Export native BOM CSV/);
   assert.match(script, /Export self-contained HTML harness report/);
   assert.match(script, /Current topology validation issues/);

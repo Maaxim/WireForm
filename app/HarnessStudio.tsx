@@ -51,6 +51,16 @@ import {
   serializeBomCsv,
 } from "./bom";
 import {
+  CABLE_QUANTITY_MODES,
+  additionalComponentModeLabel,
+  additionalComponentQuantity,
+  additionalComponentToWireViz,
+  cloneAdditionalComponentsWithNewIds,
+  createAdditionalComponentPreset,
+  validateAdditionalComponents,
+  type AdditionalComponentPreset,
+} from "./additional-components";
+import {
   buildHarnessReportModel,
   htmlReportFilenameForTitle,
   renderHarnessReportHtml,
@@ -82,6 +92,8 @@ import {
   parseProjectFile,
   remapTopologyLink,
   serializeProjectFile,
+  type AdditionalComponent,
+  type AdditionalComponentPlacement,
   type ComponentKind,
   type HarnessComponent,
   type HarnessProject,
@@ -495,6 +507,15 @@ function buildWireVizDocument(project: HarnessProject) {
     if (node.supplier) cable.supplier = node.supplier;
     if (node.spn) cable.spn = node.spn;
     if (node.notes) cable.notes = node.notes;
+    const additionalComponents = (node.additionalComponents ?? []).flatMap(
+      (component) => {
+        const serialized = additionalComponentToWireViz(node, component);
+        return serialized ? [serialized] : [];
+      },
+    );
+    if (additionalComponents.length) {
+      cable.additional_components = additionalComponents;
+    }
     cables[node.designator] = cable;
   }
 
@@ -608,6 +629,9 @@ function validateProject(project: HarnessProject): ValidationResult {
   if (project.links.length === 0) warnings.push("The harness has no connections.");
 
   warnings.push(...validateTerminationMetadata(project));
+  const additionalComponentIssues = validateAdditionalComponents(project);
+  errors.push(...additionalComponentIssues.errors);
+  warnings.push(...additionalComponentIssues.warnings);
 
   for (const link of project.links) {
     for (const endpoint of [link.from, link.to]) {
@@ -911,6 +935,9 @@ export function HarnessStudio() {
       pinLabels: [...component.pinLabels],
       wireLabels: [...component.wireLabels],
       colors: [...component.colors],
+      additionalComponents: cloneAdditionalComponentsWithNewIds(
+        component.additionalComponents,
+      ),
     }));
     const pastedLinks = clipboard.links.map((link, index) =>
       remapTopologyLink(link, `${idPrefix}-link-${index}`, idMap),
@@ -1177,6 +1204,87 @@ export function HarnessStudio() {
         Object.assign(node, patch);
       },
       message,
+    );
+  };
+
+  const addCableAdditionalComponent = (preset: AdditionalComponentPreset) => {
+    if (!selectedId) return;
+    const component = createAdditionalComponentPreset(preset);
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        if (!node || !CABLE_KINDS.includes(node.kind)) return;
+        node.additionalComponents = [
+          ...(node.additionalComponents ?? []),
+          component,
+        ];
+      },
+      `${component.type || "Additional component"} added.`,
+    );
+  };
+
+  const updateCableAdditionalComponent = (
+    componentId: string,
+    patch: Partial<AdditionalComponent>,
+  ) => {
+    if (!selectedId) return;
+    updateProject((draft) => {
+      const node = draft.components.find((item) => item.id === selectedId);
+      const component = node?.additionalComponents?.find(
+        (item) => item.id === componentId,
+      );
+      if (component) Object.assign(component, patch);
+    });
+  };
+
+  const updateCableAdditionalPlacement = (
+    componentId: string,
+    patch: Partial<AdditionalComponentPlacement>,
+  ) => {
+    if (!selectedId) return;
+    updateProject((draft) => {
+      const node = draft.components.find((item) => item.id === selectedId);
+      const component = node?.additionalComponents?.find(
+        (item) => item.id === componentId,
+      );
+      if (!component) return;
+      const placement = { ...(component.placement ?? {}), ...patch };
+      component.placement = Object.values(placement).some(
+        (value) => value !== undefined && value !== "",
+      )
+        ? placement
+        : undefined;
+    });
+  };
+
+  const duplicateCableAdditionalComponent = (componentId: string) => {
+    if (!selectedId) return;
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        const source = node?.additionalComponents?.find(
+          (item) => item.id === componentId,
+        );
+        if (!node || !source) return;
+        const [copy] = cloneAdditionalComponentsWithNewIds([source]) ?? [];
+        if (copy) node.additionalComponents = [...(node.additionalComponents ?? []), copy];
+      },
+      "Additional component duplicated.",
+    );
+  };
+
+  const deleteCableAdditionalComponent = (componentId: string) => {
+    if (!selectedId) return;
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        if (!node) return;
+        const remaining = (node.additionalComponents ?? []).filter(
+          (item) => item.id !== componentId,
+        );
+        node.additionalComponents = remaining.length ? remaining : undefined;
+      },
+      "Additional component removed.",
     );
   };
 
@@ -2723,9 +2831,9 @@ export function HarnessStudio() {
                                 kind === "connector"
                                   ? selected.photo
                                   : undefined,
-                              additionalComponents: CONNECTOR_KINDS.includes(kind)
-                                ? selected.additionalComponents
-                                : undefined,
+                              additionalComponents: changingGroup
+                                ? undefined
+                                : selected.additionalComponents,
                               pinCount: CONNECTOR_KINDS.includes(kind)
                                 ? changingGroup
                                   ? 4
@@ -3029,6 +3137,18 @@ export function HarnessStudio() {
                     </>
                   )}
                 </div>
+
+                {CABLE_KINDS.includes(selected.kind) && (
+                  <CableAdditionalComponentsSection
+                    project={project}
+                    cable={selected}
+                    onAdd={addCableAdditionalComponent}
+                    onChange={updateCableAdditionalComponent}
+                    onPlacementChange={updateCableAdditionalPlacement}
+                    onDuplicate={duplicateCableAdditionalComponent}
+                    onDelete={deleteCableAdditionalComponent}
+                  />
+                )}
 
                 {CONNECTOR_KINDS.includes(selected.kind) && (
                   <PinTerminationsSection
@@ -3511,6 +3631,355 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function optionalNumber(value: string) {
+  if (value.trim() === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function CableAdditionalComponentsSection({
+  project,
+  cable,
+  onAdd,
+  onChange,
+  onPlacementChange,
+  onDuplicate,
+  onDelete,
+}: {
+  project: HarnessProject;
+  cable: HarnessComponent;
+  onAdd: (preset: AdditionalComponentPreset) => void;
+  onChange: (id: string, patch: Partial<AdditionalComponent>) => void;
+  onPlacementChange: (
+    id: string,
+    patch: Partial<AdditionalComponentPlacement>,
+  ) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const components = cable.additionalComponents ?? [];
+  return (
+    <div className="property-section additional-components-section">
+      <h3>Additional components</h3>
+      <p className="section-note">
+        Physical cable accessories. Conductor labels above remain signal text.
+      </p>
+      <div className="additional-preset-grid">
+        <button type="button" onClick={() => onAdd("heat-shrink")}>
+          <Plus size={12} /> Heat shrink
+        </button>
+        <button type="button" onClick={() => onAdd("wire-label")}>
+          <Plus size={12} /> Wire label
+        </button>
+        <button type="button" onClick={() => onAdd("ferrite")}>
+          <Plus size={12} /> Ferrite
+        </button>
+        <button type="button" onClick={() => onAdd("generic")}>
+          <Plus size={12} /> Generic
+        </button>
+      </div>
+      {!components.length ? (
+        <p className="additional-empty">No cable accessories assigned.</p>
+      ) : (
+        <div className="additional-component-list">
+          {components.map((component, index) => {
+            const effective = additionalComponentQuantity(
+              project,
+              cable,
+              component,
+            );
+            const mode = additionalComponentModeLabel(component.qtyMultiplier);
+            const unit = component.unit?.trim() || "pcs";
+            const placement = component.placement;
+            const unknownMode =
+              component.qtyMultiplier &&
+              !CABLE_QUANTITY_MODES.some(
+                (option) => option.value === component.qtyMultiplier,
+              );
+            return (
+              <details className="additional-component-row" key={component.id}>
+                <summary>
+                  <div>
+                    <strong>{component.type?.trim() || `Component ${index + 1}`}</strong>
+                    <span>
+                      {mode} · Base {component.qty ?? 1} · Calculated {effective ?? "—"} {unit}
+                    </span>
+                  </div>
+                  <ChevronDown size={13} />
+                </summary>
+                <div className="additional-component-editor">
+                  <div className="field-row">
+                    <Field label="Type">
+                      <input
+                        value={component.type ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { type: event.target.value })
+                        }
+                        placeholder="Required for WireViz"
+                      />
+                    </Field>
+                    <Field label="Subtype / description">
+                      <input
+                        value={component.subtype ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { subtype: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                  </div>
+                  <div className="field-row">
+                    <Field label="Manufacturer">
+                      <input
+                        value={component.manufacturer ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            manufacturer: event.target.value,
+                          })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                    <Field label="Manufacturer P/N">
+                      <input
+                        value={component.mpn ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { mpn: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                  </div>
+                  <div className="field-row">
+                    <Field label="Base quantity">
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={component.qty ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            qty: optionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="1"
+                      />
+                    </Field>
+                    <Field label="Unit">
+                      <input
+                        value={component.unit ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { unit: event.target.value })
+                        }
+                        placeholder="pcs"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Quantity mode">
+                    <div className="select-wrap">
+                      <select
+                        value={component.qtyMultiplier ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            qtyMultiplier: event.target.value || undefined,
+                          })
+                        }
+                      >
+                        {unknownMode && (
+                          <option value={component.qtyMultiplier}>
+                            Unknown: {component.qtyMultiplier}
+                          </option>
+                        )}
+                        {CABLE_QUANTITY_MODES.map((option) => (
+                          <option key={option.value || "fixed"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={13} />
+                    </div>
+                  </Field>
+                  <p className="calculated-quantity">
+                    Calculated quantity: <strong>{effective ?? "Unavailable"}</strong>{" "}
+                    {effective !== undefined ? unit : ""}
+                  </p>
+                  <details className="additional-advanced">
+                    <summary>Part details</summary>
+                    <Field label="Internal part number">
+                      <input
+                        value={component.pn ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { pn: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                    <div className="field-row">
+                      <Field label="Supplier">
+                        <input
+                          value={component.supplier ?? ""}
+                          onChange={(event) =>
+                            onChange(component.id, {
+                              supplier: event.target.value,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <Field label="Supplier P/N">
+                        <input
+                          value={component.spn ?? ""}
+                          onChange={(event) =>
+                            onChange(component.id, { spn: event.target.value })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="WireViz background color">
+                      <input
+                        value={component.bgcolor ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            bgcolor: event.target.value,
+                          })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                  </details>
+                  <details className="additional-advanced" open={Boolean(placement)}>
+                    <summary>Placement (WireForm only)</summary>
+                    <div className="field-row">
+                      <Field label="Scope">
+                        <div className="select-wrap">
+                          <select
+                            value={placement?.scope ?? ""}
+                            onChange={(event) =>
+                              onPlacementChange(component.id, {
+                                scope:
+                                  (event.target.value as AdditionalComponentPlacement["scope"]) ||
+                                  undefined,
+                              })
+                            }
+                          >
+                            <option value="">Not specified</option>
+                            <option value="cable">Cable</option>
+                            <option value="wire">Selected conductors</option>
+                            <option value="termination">Termination</option>
+                          </select>
+                          <ChevronDown size={13} />
+                        </div>
+                      </Field>
+                      <Field label="End">
+                        <div className="select-wrap">
+                          <select
+                            value={placement?.end ?? ""}
+                            onChange={(event) =>
+                              onPlacementChange(component.id, {
+                                end:
+                                  (event.target.value as AdditionalComponentPlacement["end"]) ||
+                                  undefined,
+                              })
+                            }
+                          >
+                            <option value="">Not specified</option>
+                            <option value="from">From</option>
+                            <option value="to">To</option>
+                            <option value="both">Both ends</option>
+                          </select>
+                          <ChevronDown size={13} />
+                        </div>
+                      </Field>
+                    </div>
+                    <div className="field-row">
+                      <Field label="Offset from end" hint="mm">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={placement?.offsetMm ?? ""}
+                          onChange={(event) =>
+                            onPlacementChange(component.id, {
+                              offsetMm: optionalNumber(event.target.value),
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <Field label="Piece length" hint="mm">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={placement?.pieceLengthMm ?? ""}
+                          onChange={(event) =>
+                            onPlacementChange(component.id, {
+                              pieceLengthMm: optionalNumber(event.target.value),
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                    </div>
+                    {(placement?.scope === "wire" ||
+                      placement?.scope === "termination" ||
+                      placement?.wireIds?.length) && (
+                      <Field label="Selected conductors" hint="Comma separated">
+                        <input
+                          value={placement?.wireIds?.join(", ") ?? ""}
+                          onChange={(event) =>
+                            onPlacementChange(component.id, {
+                              wireIds: csvValues(event.target.value).flatMap(
+                                (wireId) => {
+                                  if (!wireId) return [];
+                                  const number = Number(wireId);
+                                  return [
+                                    Number.isInteger(number) ? number : wireId,
+                                  ];
+                                },
+                              ),
+                            })
+                          }
+                          placeholder="1, 2, DATA"
+                        />
+                      </Field>
+                    )}
+                    <Field label="Placement note">
+                      <textarea
+                        rows={2}
+                        value={placement?.note ?? ""}
+                        onChange={(event) =>
+                          onPlacementChange(component.id, {
+                            note: event.target.value,
+                          })
+                        }
+                        placeholder="Assembly placement details"
+                      />
+                    </Field>
+                  </details>
+                  <div className="additional-component-actions">
+                    <button type="button" onClick={() => onDuplicate(component.id)}>
+                      <Copy size={13} /> Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => onDelete(component.id)}
+                    >
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

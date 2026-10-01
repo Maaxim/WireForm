@@ -330,14 +330,23 @@ additional_bom_items:
   assert.equal(candidate.project.links.length, 4);
   assert.equal(candidate.report.components, 3);
   assert.equal(candidate.report.links, 4);
-  assert.deepEqual(candidate.project.components[0].additionalComponents, [
+  assert.match(
+    candidate.project.components[0].additionalComponents[0].id,
+    /^additional-/,
+  );
+  assert.deepEqual(
     {
+      ...candidate.project.components[0].additionalComponents[0],
+      id: undefined,
+    },
+    {
+      id: undefined,
       type: "Backshell",
       manufacturer: "Example",
       mpn: "BACK-1",
       qty: 1,
     },
-  ]);
+  );
   assert.ok(
     candidate.report.warnings.some((message) =>
       message.includes("no per-pin termination assignments were inferred"),

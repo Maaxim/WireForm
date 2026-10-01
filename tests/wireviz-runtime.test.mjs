@@ -73,6 +73,22 @@ from wireviz.wireviz import parse as wireviz_parse
           wirelabels: ["POWER", "RETURN"],
           gauge: "22 AWG",
           length: "1 m",
+          additional_components: [
+            {
+              type: "Wire label",
+              manufacturer: "Brady",
+              mpn: "B-342",
+              qty: 1,
+              unit: "pcs",
+              qty_multiplier: "terminations",
+            },
+            {
+              type: "Ferrite",
+              manufacturer: "TDK",
+              mpn: "ZCAT2035-0930",
+              qty: 1,
+            },
+          ],
         },
       },
       connections: [

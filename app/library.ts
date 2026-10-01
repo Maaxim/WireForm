@@ -2,10 +2,11 @@ import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   makeComponent,
-  normalizeConnectorAdditionalComponents,
+  normalizeAdditionalComponents,
   type ComponentKind,
   type HarnessComponent,
 } from "./model.ts";
+import { cloneAdditionalComponentsWithNewIds } from "./additional-components.ts";
 
 export const LIBRARY_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const LIBRARY_FILE_FORMAT = "wireviz-gui-component-library";
@@ -220,9 +221,9 @@ function normalizedTemplate(
           alt: textValue(photoSource?.alt, "Connector photo", 500),
         }
       : undefined;
-  const additionalComponents = CONNECTOR_KINDS.includes(kind)
-    ? normalizeConnectorAdditionalComponents(componentSource.additionalComponents)
-    : undefined;
+  const additionalComponents = normalizeAdditionalComponents(
+    componentSource.additionalComponents,
+  );
   const timestamp = now();
   return {
     id: textValue(source.id, createId("template"), 240),
@@ -396,11 +397,15 @@ export function instantiateTemplate(
   index: number,
 ): HarnessComponent {
   const base = makeComponent(template.component.kind, index);
-  return {
+  const component = {
     ...base,
     ...structuredClone(template.component),
     id: createId("component"),
     x: 240 + ((index * 58) % 620),
     y: 95 + ((index * 52) % 420),
   };
+  component.additionalComponents = cloneAdditionalComponentsWithNewIds(
+    component.additionalComponents,
+  );
+  return component;
 }

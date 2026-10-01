@@ -1,11 +1,16 @@
 import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
-  type ConnectorAdditionalComponent,
+  type AdditionalComponent,
   type HarnessComponent,
   type HarnessProject,
   type TerminationPart,
 } from "./model.ts";
+import {
+  additionalComponentQuantity,
+  parseLengthMeters,
+  roundedAdditionalQuantity,
+} from "./additional-components.ts";
 import { isPhysicalTerminationLink } from "./termination.ts";
 
 export interface BomRow {
@@ -45,8 +50,6 @@ const CSV_COLUMNS = [
   "Designators",
   "Notes",
 ] as const;
-const QUANTITY_PRECISION = 9;
-
 function clean(value: string | undefined) {
   return value?.trim() ?? "";
 }
@@ -88,7 +91,7 @@ export function naturalCompare(left: string, right: string) {
 }
 
 function roundedQuantity(value: number) {
-  return Number(value.toFixed(QUANTITY_PRECISION));
+  return roundedAdditionalQuantity(value);
 }
 
 function componentCategory(component: HarnessComponent) {
@@ -111,37 +114,7 @@ function componentDescription(component: HarnessComponent) {
   return gauge ? `${name} (${gauge})` : name;
 }
 
-const LENGTH_FACTORS_TO_METERS: Record<string, number> = {
-  m: 1,
-  meter: 1,
-  meters: 1,
-  metre: 1,
-  metres: 1,
-  cm: 0.01,
-  mm: 0.001,
-  km: 1_000,
-  in: 0.0254,
-  inch: 0.0254,
-  inches: 0.0254,
-  '"': 0.0254,
-  ft: 0.3048,
-  foot: 0.3048,
-  feet: 0.3048,
-  yd: 0.9144,
-  yard: 0.9144,
-  yards: 0.9144,
-};
-
-export function parseLengthMeters(value: string) {
-  const match = /^\s*(\d+(?:[.,]\d+)?)\s*([A-Za-z"]+)\s*$/.exec(value);
-  if (!match) return undefined;
-  const quantity = Number(match[1].replace(",", "."));
-  const factor = LENGTH_FACTORS_TO_METERS[match[2].toLowerCase()];
-  if (!Number.isFinite(quantity) || quantity <= 0 || factor === undefined) {
-    return undefined;
-  }
-  return roundedQuantity(quantity * factor);
-}
+export { parseLengthMeters } from "./additional-components.ts";
 
 function baseComponentContribution(
   component: HarnessComponent,
@@ -185,35 +158,6 @@ function cableContribution(component: HarnessComponent): BomContribution {
   };
 }
 
-function populatedPinCount(project: HarnessProject, componentId: string) {
-  return new Set(
-    project.links.flatMap((link) =>
-      [link.from, link.to].flatMap((port) =>
-        port.nodeId === componentId && port.portId.startsWith("pin:")
-          ? [port.portId]
-          : [],
-      ),
-    ),
-  ).size;
-}
-
-function additionalQuantity(
-  project: HarnessProject,
-  component: HarnessComponent,
-  additional: ConnectorAdditionalComponent,
-) {
-  const quantity = additional.qty ?? 1;
-  if (!additional.qtyMultiplier) return quantity;
-  const populated = populatedPinCount(project, component.id);
-  const multiplier =
-    additional.qtyMultiplier === "pincount"
-      ? component.pinCount
-      : additional.qtyMultiplier === "populated"
-        ? populated
-        : Math.max(component.pinCount - populated, 0);
-  return quantity * multiplier;
-}
-
 function partContribution(
   part: TerminationPart,
   defaultCategory: string,
@@ -238,12 +182,14 @@ function partContribution(
 function additionalContribution(
   project: HarnessProject,
   component: HarnessComponent,
-  additional: ConnectorAdditionalComponent,
-): BomContribution {
+  additional: AdditionalComponent,
+): BomContribution | undefined {
+  const quantity = additionalComponentQuantity(project, component, additional);
+  if (quantity === undefined) return undefined;
   const contribution = partContribution(
     additional,
     "Additional component",
-    additionalQuantity(project, component, additional),
+    quantity,
     clean(component.designator) ? [clean(component.designator)] : [],
   );
   return {
@@ -362,9 +308,12 @@ export function buildBomRows(project: HarnessProject) {
         : baseComponentContribution(component),
     );
     for (const additional of component.additionalComponents ?? []) {
-      contributions.push(
-        additionalContribution(project, component, additional),
+      const contribution = additionalContribution(
+        project,
+        component,
+        additional,
       );
+      if (contribution) contributions.push(contribution);
     }
   }
 

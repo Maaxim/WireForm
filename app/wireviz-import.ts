@@ -5,13 +5,17 @@ import {
   PROJECT_SCHEMA_VERSION,
   createEmptyProject,
   makeComponent,
-  normalizeConnectorAdditionalComponents,
+  normalizeAdditionalComponents,
   type ComponentKind,
   type HarnessComponent,
   type HarnessProject,
   type PortRef,
   type TopologyLink,
 } from "./model.ts";
+import {
+  CABLE_QTY_MULTIPLIERS,
+  CONNECTOR_QTY_MULTIPLIERS,
+} from "./additional-components.ts";
 
 export interface WireVizImportReport {
   fileName: string;
@@ -73,6 +77,7 @@ const SUPPORTED_CABLE_FIELDS = new Set([
   "spn",
   "notes",
   "image",
+  "additional_components",
 ]);
 const SUPPORTED_ADDITIONAL_COMPONENT_FIELDS = new Set([
   "type",
@@ -124,11 +129,12 @@ function importedAdditionalComponents(
   value: unknown,
   designator: string,
   report: WireVizImportReport,
+  owner: "connector" | "cable",
 ) {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
     report.unsupported.push(
-      `${designator}: connector additional_components is not a list.`,
+      `${designator}: ${owner} additional_components is not a list.`,
     );
     return undefined;
   }
@@ -147,9 +153,17 @@ function importedAdditionalComponents(
         );
       }
     }
+    const multiplier = textValue(component.qty_multiplier);
+    const validMultipliers =
+      owner === "cable" ? CABLE_QTY_MULTIPLIERS : CONNECTOR_QTY_MULTIPLIERS;
+    if (multiplier && !validMultipliers.has(multiplier as never)) {
+      report.warnings.push(
+        `${designator}: additional component ${index + 1} has unknown ${owner} quantity multiplier "${multiplier}".`,
+      );
+    }
   }
-  const components = normalizeConnectorAdditionalComponents(value);
-  if (components?.length) {
+  const components = normalizeAdditionalComponents(value);
+  if (owner === "connector" && components?.length) {
     report.warnings.push(
       `${designator}: connector additional components were preserved, but no per-pin termination assignments were inferred.`,
     );
@@ -295,6 +309,7 @@ function importedConnector(
     attributes.additional_components,
     designator,
     report,
+    "connector",
   );
   if (additionalComponents) component.additionalComponents = additionalComponents;
   component.x = 80;
@@ -355,6 +370,13 @@ function importedCable(
   component.supplier = textValue(attributes.supplier);
   component.spn = textValue(attributes.spn);
   component.notes = textValue(attributes.notes);
+  const additionalComponents = importedAdditionalComponents(
+    attributes.additional_components,
+    designator,
+    report,
+    "cable",
+  );
+  if (additionalComponents) component.additionalComponents = additionalComponents;
   component.x = 560;
   component.y = 90 + index * 150;
 

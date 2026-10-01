@@ -16,6 +16,8 @@ machine.
 - Explicit pin and conductor terminations
 - Per-wire-end contact, seal, strip-length, tooling, and termination notes
 - Wire colors, labels, gauge, length, shields, loops, and BOM fields
+- Generic cable/wire additional components with heat-shrink, physical wire-label,
+  ferrite, and generic presets
 - Hold and drag to select multiple components
 - Move, copy, paste, and delete a component selection
 - Undo and redo
@@ -52,14 +54,18 @@ machine.
    connection also deletes its termination data.
 7. Use the top-bar file controls to create, open, or download an editable
    `.wireform.json` project, or import an existing `.yml`/`.yaml` WireViz file.
-8. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
+8. For a selected cable or wire, use **Additional components** to add cable
+   accessories. Quantity modes map to WireViz's fixed, `wirecount`,
+   `terminations`, `length`, and `total_length` rules; the inspector previews
+   the same effective quantity used by the native BOM.
+9. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
-9. Choose the document icon to export a self-contained HTML engineering report.
+10. Choose the document icon to export a self-contained HTML engineering report.
    The report opens offline, includes the vector diagram and embedded connector
    photos, and is styled for browser printing or **Save as PDF**.
-10. Review the generated WireViz preview or YAML in the lower panel.
-11. Resolve validation errors and choose **Download YAML**.
+11. Review the generated WireViz preview or YAML in the lower panel.
+12. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -73,6 +79,14 @@ connection. WireViz has no per-pin contact assignment, so YAML export groups
 identical contacts and seals into each connector's `additional_components` with
 explicit quantities. Strip length, tooling, and termination notes remain
 WireForm-native manufacturing data and are retained in `.wireform.json` files.
+
+Cable accessories use the same generic additional-component model as connector
+accessories. Standard part and quantity fields round-trip through WireViz cable
+`additional_components`. Placement scope, end, offset, piece length, selected
+conductors, and placement notes are WireForm-only: they remain in project files
+and native HTML reports and are deliberately omitted from YAML. Conductor
+`wirelabels` are identification text; a **Wire label** additional component is
+the separately purchased physical labeling product.
 
 Native BOM export runs entirely in the browser and does not use WireViz YAML,
 Python, Graphviz, or a backend. Cable and wire lengths are normalized to meters;

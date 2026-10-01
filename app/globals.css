@@ -1012,6 +1012,143 @@ select:focus-visible {
   line-height: 1.4;
 }
 
+.additional-preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+
+.additional-preset-grid button,
+.additional-component-actions button {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #176b70;
+  background: white;
+  border: 1px solid #bededb;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.additional-empty {
+  margin: 0;
+  padding: 9px;
+  color: #89969a;
+  text-align: center;
+  background: #f8faf9;
+  border: 1px dashed #d5dddc;
+  border-radius: 5px;
+  font-size: 8px;
+}
+
+.additional-component-list {
+  display: grid;
+  gap: 6px;
+}
+
+.additional-component-row > summary {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: #405159;
+  background: #f8faf9;
+  border: 1px solid #dce3e2;
+  border-radius: 5px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.additional-component-row > summary::-webkit-details-marker,
+.additional-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.additional-component-row > summary div {
+  min-width: 0;
+}
+
+.additional-component-row > summary strong,
+.additional-component-row > summary span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.additional-component-row > summary strong {
+  font-size: 9px;
+}
+
+.additional-component-row > summary span {
+  margin-top: 3px;
+  color: #78888e;
+  font-size: 8px;
+}
+
+.additional-component-row[open] > summary {
+  color: #176b70;
+  background: #eef7f5;
+  border-color: #a9d2ce;
+  border-radius: 5px 5px 0 0;
+}
+
+.additional-component-row[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.additional-component-editor {
+  padding: 10px 8px;
+  background: #fbfcfb;
+  border: 1px solid #dce3e2;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+}
+
+.calculated-quantity {
+  margin: -2px 0 9px;
+  padding: 6px 8px;
+  color: #567078;
+  background: #eef5f4;
+  border-radius: 4px;
+  font-size: 8px;
+}
+
+.additional-advanced {
+  margin: 5px 0;
+  border-top: 1px solid #e2e7e6;
+}
+
+.additional-advanced > summary {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  color: #62737a;
+  font-size: 8px;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+.additional-component-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.additional-component-actions button.danger {
+  color: #a34e47;
+  border-color: #eed4d0;
+}
+
 .termination-list {
   display: grid;
   gap: 5px;

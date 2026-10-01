@@ -2,12 +2,12 @@ import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   normalizeWireTermination,
-  type ConnectorAdditionalComponent,
   type HarnessProject,
   type TerminationPart,
   type TopologyLink,
   type WireTermination,
 } from "./model.ts";
+import { additionalComponentToWireViz } from "./additional-components.ts";
 
 const PART_FIELDS = [
   "type",
@@ -154,28 +154,6 @@ function partToWireViz(
   };
 }
 
-function manualComponentToWireViz(
-  component: ConnectorAdditionalComponent,
-): WireVizAdditionalComponent {
-  return {
-    ...Object.fromEntries(
-      PART_FIELDS.flatMap((field) =>
-        component[field]?.trim()
-          ? [[field, component[field]?.trim() as string]]
-          : [],
-      ),
-    ),
-    ...(component.qty !== undefined ? { qty: component.qty } : {}),
-    ...(component.unit?.trim() ? { unit: component.unit.trim() } : {}),
-    ...(component.qtyMultiplier
-      ? { qty_multiplier: component.qtyMultiplier }
-      : {}),
-    ...(component.bgcolor?.trim()
-      ? { bgcolor: component.bgcolor.trim() }
-      : {}),
-  };
-}
-
 export function collectConnectorAdditionalComponents(
   project: HarnessProject,
   connectorId: string,
@@ -185,9 +163,10 @@ export function collectConnectorAdditionalComponents(
   );
   if (!connector || !CONNECTOR_KINDS.includes(connector.kind)) return [];
 
-  const output = (connector.additionalComponents ?? []).map(
-    manualComponentToWireViz,
-  );
+  const output = (connector.additionalComponents ?? []).flatMap((component) => {
+    const serialized = additionalComponentToWireViz(connector, component);
+    return serialized ? [serialized] : [];
+  });
   const grouped = new Map<string, { part: TerminationPart; quantity: number }>();
 
   for (const link of project.links) {

@@ -6,6 +6,11 @@ import {
   type BomRow,
 } from "./bom.ts";
 import {
+  additionalComponentModeLabel,
+  additionalComponentQuantity,
+  placementConductorText,
+} from "./additional-components.ts";
+import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   type ConnectorAdditionalComponent,
@@ -70,6 +75,19 @@ export interface ReportCable {
   from: string;
   to: string;
   notes: string;
+  additionalComponents: ReportCableAdditionalComponent[];
+}
+
+export interface ReportCableAdditionalComponent {
+  type: string;
+  manufacturer: string;
+  mpn: string;
+  description: string;
+  baseQuantity: number;
+  quantityMode: string;
+  calculatedQuantity: number | string;
+  unit: string;
+  placement: string;
 }
 
 export interface ReportTermination {
@@ -289,6 +307,14 @@ function buildCables(project: HarnessProject): ReportCable[] {
         );
         ends[own.side].push(connectionLabel(otherComponent, other.portId));
       }
+      const from = uniqueNatural(ends.left).join(", ");
+      const to = uniqueNatural(ends.right).join(", ");
+      const fromEnd = uniqueNatural(
+        ends.left.map((value) => value.split(":", 1)[0]),
+      ).join(", ");
+      const toEnd = uniqueNatural(
+        ends.right.map((value) => value.split(":", 1)[0]),
+      ).join(", ");
       return {
         designator: component.designator,
         kind: component.kind,
@@ -298,9 +324,65 @@ function buildCables(project: HarnessProject): ReportCable[] {
         length: component.length,
         conductorCount: component.wireCount,
         gauge: component.gauge,
-        from: uniqueNatural(ends.left).join(", "),
-        to: uniqueNatural(ends.right).join(", "),
+        from,
+        to,
         notes: component.notes,
+        additionalComponents: (component.additionalComponents ?? []).map(
+          (additional) => {
+            const placement = additional.placement;
+            const placementParts: string[] = [];
+            if (placement?.end === "both") placementParts.push("Both ends");
+            else if (placement?.end === "from") {
+              placementParts.push(
+                placement.offsetMm !== undefined
+                  ? `${placement.offsetMm} mm from ${fromEnd || "from"} end`
+                  : `At ${fromEnd || "from"} end`,
+              );
+            } else if (placement?.end === "to") {
+              placementParts.push(
+                placement.offsetMm !== undefined
+                  ? `${placement.offsetMm} mm from ${toEnd || "to"} end`
+                  : `At ${toEnd || "to"} end`,
+              );
+            } else if (placement?.scope) {
+              placementParts.push(
+                placement.scope === "termination"
+                  ? "At terminations"
+                  : placement.scope === "wire"
+                    ? "On conductors"
+                    : "On cable",
+              );
+            }
+            if (
+              placement?.offsetMm !== undefined &&
+              placement.end !== "from" &&
+              placement.end !== "to"
+            ) {
+              placementParts.push(`${placement.offsetMm} mm offset`);
+            }
+            if (placement?.pieceLengthMm !== undefined) {
+              placementParts.push(`${placement.pieceLengthMm} mm piece(s)`);
+            }
+            const conductors = placementConductorText(placement);
+            if (conductors) placementParts.push(conductors);
+            if (placement?.note) placementParts.push(placement.note);
+            return {
+              type: additional.type ?? "",
+              manufacturer: additional.manufacturer ?? "",
+              mpn: additional.mpn ?? additional.pn ?? "",
+              description: additional.subtype ?? "",
+              baseQuantity: additional.qty ?? 1,
+              quantityMode: additionalComponentModeLabel(
+                additional.qtyMultiplier,
+              ),
+              calculatedQuantity:
+                additionalComponentQuantity(project, component, additional) ??
+                "Unavailable",
+              unit: additional.unit ?? "pcs",
+              placement: placementParts.join("; "),
+            };
+          },
+        ),
       };
     });
 }
@@ -657,9 +739,35 @@ ${renderTable(connector.pins, pinColumns, "No pins are defined.")}
 </article>`;
 }
 
+function cableAdditionalComponentsSection(cable: ReportCable) {
+  if (!cable.additionalComponents.length) return "";
+  const columns: Array<TableColumn<ReportCableAdditionalComponent>> = [
+    { heading: "Type", value: (row) => row.type },
+    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
+    { heading: "MPN", value: (row) => row.mpn, optional: true },
+    { heading: "Description", value: (row) => row.description, optional: true },
+    { heading: "Base qty", value: (row) => row.baseQuantity, numeric: true },
+    { heading: "Rule", value: (row) => row.quantityMode },
+    {
+      heading: "Calculated",
+      value: (row) => row.calculatedQuantity,
+      numeric: true,
+    },
+    { heading: "Unit", value: (row) => row.unit },
+    { heading: "Placement", value: (row) => row.placement, optional: true },
+  ];
+  return `<article class="cable-components"><h3>${escapeHtml(
+    cable.designator,
+  )} <span>Additional Components</span></h3>${renderTable(
+    cable.additionalComponents,
+    columns,
+    "No additional components are assigned.",
+  )}</article>`;
+}
+
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
-*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.warnings{margin:0;padding-left:22px}.warnings li{margin:5px 0}.document-note{font-size:.83rem;color:#53636e}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
+*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.warnings{margin:0;padding-left:22px}.warnings li{margin:5px 0}.document-note{font-size:.83rem;color:#53636e}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}}
@@ -744,7 +852,7 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
       ? model.connectors.map(connectorSection).join("\n")
       : '<div class="report-section"><p class="empty">No connectors are defined.</p></div>'
   }</section>
-<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}</section>
+<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>
 <section class="report-section" id="validation"><h2>Notes / Validation</h2>${warnings}<p class="document-note">This HTML file is generated documentation. Continue editing the corresponding <code>.wireform.json</code> project as the authoritative source.</p></section>

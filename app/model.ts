@@ -38,12 +38,29 @@ export interface WireTermination {
   notes?: string;
 }
 
-export interface ConnectorAdditionalComponent extends TerminationPart {
+export type AdditionalComponentScope = "cable" | "wire" | "termination";
+export type AdditionalComponentEnd = "from" | "to" | "both";
+
+export interface AdditionalComponentPlacement {
+  scope?: AdditionalComponentScope;
+  end?: AdditionalComponentEnd;
+  wireIds?: Array<string | number>;
+  offsetMm?: number;
+  pieceLengthMm?: number;
+  note?: string;
+}
+
+export interface AdditionalComponent extends TerminationPart {
+  id: string;
   qty?: number;
   unit?: string;
-  qtyMultiplier?: "pincount" | "populated" | "unpopulated";
+  qtyMultiplier?: string;
   bgcolor?: string;
+  placement?: AdditionalComponentPlacement;
 }
+
+// Kept as an alias for callers that describe connector-specific WireViz data.
+export type ConnectorAdditionalComponent = AdditionalComponent;
 
 export interface HarnessComponent {
   id: string;
@@ -164,6 +181,10 @@ function createId(prefix: string) {
     .slice(2, 10)}`;
 }
 
+export function createAdditionalComponentId() {
+  return createId("additional");
+}
+
 function normalizedPhoto(value: unknown): ConnectorPhoto | undefined {
   const photo = recordValue(value);
   if (!photo) return undefined;
@@ -235,41 +256,90 @@ export function normalizeWireTermination(
   return Object.values(termination).some(Boolean) ? termination : undefined;
 }
 
-export function normalizeConnectorAdditionalComponents(
+function finiteOptionalNumber(value: unknown) {
+  if (value === "" || value === null || value === undefined) return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  return Math.min(1_000_000, Math.max(-1_000_000, number));
+}
+
+function normalizeAdditionalComponentPlacement(
   value: unknown,
-): ConnectorAdditionalComponent[] | undefined {
+): AdditionalComponentPlacement | undefined {
+  const source = recordValue(value);
+  if (!source) return undefined;
+  const scope = ["cable", "wire", "termination"].includes(String(source.scope))
+    ? (String(source.scope) as AdditionalComponentScope)
+    : undefined;
+  const end = ["from", "to", "both"].includes(String(source.end))
+    ? (String(source.end) as AdditionalComponentEnd)
+    : undefined;
+  const wireIds = Array.isArray(source.wireIds)
+    ? source.wireIds.slice(0, MAX_ROWS).flatMap((wireId) =>
+        typeof wireId === "string" || typeof wireId === "number"
+          ? [wireId]
+          : [],
+      )
+    : undefined;
+  const offsetMm = finiteOptionalNumber(source.offsetMm);
+  const pieceLengthMm = finiteOptionalNumber(source.pieceLengthMm);
+  const note = nonEmptyText(source.note, MAX_TEXT);
+  const placement: AdditionalComponentPlacement = {
+    ...(scope ? { scope } : {}),
+    ...(end ? { end } : {}),
+    ...(wireIds?.length ? { wireIds } : {}),
+    ...(offsetMm !== undefined ? { offsetMm } : {}),
+    ...(pieceLengthMm !== undefined ? { pieceLengthMm } : {}),
+    ...(note ? { note } : {}),
+  };
+  return Object.keys(placement).length ? placement : undefined;
+}
+
+export function normalizeAdditionalComponents(
+  value: unknown,
+): AdditionalComponent[] | undefined {
   if (!Array.isArray(value)) return undefined;
+  const usedIds = new Set<string>();
   const components = value.slice(0, 256).flatMap((entry) => {
     const source = recordValue(entry);
     const part = normalizeTerminationPart(entry);
-    if (!source || !part?.type) return [];
-    const rawQuantity = Number(source.qty);
-    const quantity =
-      Number.isFinite(rawQuantity) && rawQuantity > 0
-        ? Math.min(rawQuantity, 1_000_000)
-        : undefined;
+    if (!source) return [];
+    let id = textValue(source.id, "", 240);
+    if (!id || usedIds.has(id)) id = createAdditionalComponentId();
+    usedIds.add(id);
+    const quantity = finiteOptionalNumber(source.qty);
     const multiplier = source.qtyMultiplier ?? source.qty_multiplier;
-    const qtyMultiplier = ["pincount", "populated", "unpopulated"].includes(
-      String(multiplier),
-    )
-      ? (String(multiplier) as ConnectorAdditionalComponent["qtyMultiplier"])
-      : undefined;
+    const qtyMultiplier = nonEmptyText(multiplier, 80);
+    const placement = normalizeAdditionalComponentPlacement(source.placement);
+    const unit = nonEmptyText(source.unit, 80);
+    const bgcolor = nonEmptyText(source.bgcolor, 80);
+    if (
+      !part &&
+      quantity === undefined &&
+      !qtyMultiplier &&
+      !unit &&
+      !bgcolor &&
+      !placement
+    ) {
+      return [];
+    }
     return [
       {
-        ...part,
+        id,
+        ...(part ?? {}),
         ...(quantity !== undefined ? { qty: quantity } : {}),
-        ...(nonEmptyText(source.unit, 80)
-          ? { unit: nonEmptyText(source.unit, 80) }
-          : {}),
+        ...(unit ? { unit } : {}),
         ...(qtyMultiplier ? { qtyMultiplier } : {}),
-        ...(nonEmptyText(source.bgcolor, 80)
-          ? { bgcolor: nonEmptyText(source.bgcolor, 80) }
-          : {}),
+        ...(bgcolor ? { bgcolor } : {}),
+        ...(placement ? { placement } : {}),
       },
     ];
   });
   return components.length ? components : undefined;
 }
+
+export const normalizeConnectorAdditionalComponents =
+  normalizeAdditionalComponents;
 
 export function componentGroup(kind: ComponentKind): "connector" | "cable" {
   return CONNECTOR_KINDS.includes(kind) ? "connector" : "cable";
@@ -363,9 +433,9 @@ function normalizeComponent(
     ? Math.round(numberValue(source.wireCount, base.wireCount, 1, MAX_ROWS))
     : 0;
   const photo = kind === "connector" ? normalizedPhoto(source.photo) : undefined;
-  const additionalComponents = CONNECTOR_KINDS.includes(kind)
-    ? normalizeConnectorAdditionalComponents(source.additionalComponents)
-    : undefined;
+  const additionalComponents = normalizeAdditionalComponents(
+    source.additionalComponents,
+  );
   return {
     ...base,
     id,
