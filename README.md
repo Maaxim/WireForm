@@ -18,6 +18,7 @@ machine.
 - Wire colors, labels, gauge, length, shields, loops, and BOM fields
 - Generic cable/wire additional components with heat-shrink, physical wire-label,
   ferrite, and generic presets
+- Project-level twisted-pair relationships between two independent single wires
 - Hold and drag to select multiple components
 - Move, copy, paste, and delete a component selection
 - Undo and redo
@@ -58,14 +59,19 @@ machine.
    accessories. Quantity modes map to WireViz's fixed, `wirecount`,
    `terminations`, `length`, and `total_length` rules; the inspector previews
    the same effective quantity used by the native BOM.
-9. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
+9. Shift-select exactly two unpaired, single-conductor **Wire** components and
+   choose **Create twisted pair** in the inspector. Each member inspector can
+   edit the pair designator, optional pitch, S/Z/unspecified direction, and
+   notes, or remove the relationship without deleting either wire. A wire may
+   belong to only one pair; unequal member lengths or gauges produce warnings.
+10. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
-10. Choose the document icon to export a self-contained HTML engineering report.
+11. Choose the document icon to export a self-contained HTML engineering report.
    The report opens offline, includes the vector diagram and embedded connector
    photos, and is styled for browser printing or **Save as PDF**.
-11. Review the generated WireViz preview or YAML in the lower panel.
-12. Resolve validation errors and choose **Download YAML**.
+12. Review the generated WireViz preview or YAML in the lower panel.
+13. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -98,6 +104,15 @@ The HTML report is generated documentation and works independently after it is
 downloaded; it contains no external styles, scripts, images, or runtime service
 dependencies. Continue editing the corresponding `.wireform.json` project,
 which remains the authoritative editable source.
+
+Twisted-pair relationships are WireForm project metadata stored in the editable
+`.wireform.json` file. Member wires keep their own sourcing, dimensions,
+connections, terminations, accessories, and BOM contribution; pair membership
+adds no BOM item. The HTML report documents pair membership. WireViz export
+remains standard and contains the two ordinary member wires, so WireViz YAML
+does not retain pair pitch or direction and WireViz import cannot reconstruct
+the relationship. Individual User Library wire templates likewise do not embed
+half of a project-level pair.
 
 ## Local development
 

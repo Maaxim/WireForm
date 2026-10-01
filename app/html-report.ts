@@ -75,7 +75,17 @@ export interface ReportCable {
   from: string;
   to: string;
   notes: string;
+  twistedPair: string;
   additionalComponents: ReportCableAdditionalComponent[];
+}
+
+export interface ReportTwistedPair {
+  designator: string;
+  wireA: string;
+  wireB: string;
+  pitch: string;
+  direction: string;
+  notes: string;
 }
 
 export interface ReportCableAdditionalComponent {
@@ -109,6 +119,7 @@ export interface HarnessReportModel {
   diagramSvg: string;
   connectors: ReportConnector[];
   cables: ReportCable[];
+  twistedPairs: ReportTwistedPair[];
   terminations: ReportTermination[];
   bomRows: BomRow[];
   warnings: string[];
@@ -315,6 +326,15 @@ function buildCables(project: HarnessProject): ReportCable[] {
       const toEnd = uniqueNatural(
         ends.right.map((value) => value.split(":", 1)[0]),
       ).join(", ");
+      const pair = project.twistedPairs.find((candidate) =>
+        candidate.members.includes(component.id),
+      );
+      const counterpart = pair
+        ? project.components.find(
+            (candidate) =>
+              candidate.id === pair.members.find((member) => member !== component.id),
+          )
+        : undefined;
       return {
         designator: component.designator,
         kind: component.kind,
@@ -327,6 +347,9 @@ function buildCables(project: HarnessProject): ReportCable[] {
         from,
         to,
         notes: component.notes,
+        twistedPair: pair
+          ? `${pair.designator || "Twisted pair"}${counterpart ? ` / ${counterpart.designator}` : " / missing wire"}`
+          : "",
         additionalComponents: (component.additionalComponents ?? []).map(
           (additional) => {
             const placement = additional.placement;
@@ -383,6 +406,32 @@ function buildCables(project: HarnessProject): ReportCable[] {
             };
           },
         ),
+      };
+    });
+}
+
+function buildTwistedPairs(project: HarnessProject): ReportTwistedPair[] {
+  return [...project.twistedPairs]
+    .sort((left, right) => naturalCompare(left.designator, right.designator))
+    .map((pair) => {
+      const member = (index: number) => {
+        const id = pair.members[index];
+        return (
+          project.components.find((component) => component.id === id)
+            ?.designator ?? id ?? "Missing wire"
+        );
+      };
+      return {
+        designator: pair.designator,
+        wireA: member(0),
+        wireB: member(1),
+        pitch:
+          pair.twistPitchMm === undefined ? "" : `${pair.twistPitchMm} mm`,
+        direction:
+          pair.twistDirection === "S" || pair.twistDirection === "Z"
+            ? pair.twistDirection
+            : "Unspecified",
+        notes: pair.note ?? "",
       };
     });
 }
@@ -652,6 +701,7 @@ export function buildHarnessReportModel(
     diagramSvg: sanitizeDiagramSvg(diagramSvg),
     connectors: buildConnectors(project),
     cables: buildCables(project),
+    twistedPairs: buildTwistedPairs(project),
     terminations: buildTerminations(project),
     bomRows: buildBomRows(project),
     warnings: [...warnings].sort(naturalCompare),
@@ -783,6 +833,7 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     { heading: "Length", value: (row) => row.length, optional: true },
     { heading: "Conductors", value: (row) => row.conductorCount, numeric: true },
     { heading: "Wire size", value: (row) => row.gauge, optional: true },
+    { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
     { heading: "From", value: (row) => row.from, optional: true },
     { heading: "To", value: (row) => row.to, optional: true },
     { heading: "Notes", value: (row) => row.notes, optional: true },
@@ -802,6 +853,14 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     { heading: "Seal PN", value: (row) => row.sealPn, optional: true },
     { heading: "Strip length", value: (row) => row.stripLength, optional: true },
     { heading: "Tooling", value: (row) => row.tooling, optional: true },
+    { heading: "Notes", value: (row) => row.notes, optional: true },
+  ];
+  const twistedPairColumns: Array<TableColumn<ReportTwistedPair>> = [
+    { heading: "Pair", value: (row) => row.designator },
+    { heading: "Wire A", value: (row) => row.wireA },
+    { heading: "Wire B", value: (row) => row.wireB },
+    { heading: "Pitch", value: (row) => row.pitch, optional: true },
+    { heading: "Direction", value: (row) => row.direction },
     { heading: "Notes", value: (row) => row.notes, optional: true },
   ];
   const bomColumns: Array<TableColumn<BomRow>> = [
@@ -843,7 +902,7 @@ ${metadataItem("Revision", model.project.revision)}
 ${metadataItem("Company", model.project.company)}
 ${metadataItem("WireForm schema", model.project.schemaVersion)}
 </dl>
-<nav class="toc" aria-label="Report contents"><strong>Contents</strong><a href="#diagram">Diagram</a><a href="#connectors">Connectors</a><a href="#cables">Cables / wires</a><a href="#terminations">Terminations</a><a href="#bom">BOM</a><a href="#validation">Notes / validation</a></nav>
+<nav class="toc" aria-label="Report contents"><strong>Contents</strong><a href="#diagram">Diagram</a><a href="#connectors">Connectors</a><a href="#cables">Cables / wires</a><a href="#twisted-pairs">Twisted pairs</a><a href="#terminations">Terminations</a><a href="#bom">BOM</a><a href="#validation">Notes / validation</a></nav>
 </header>
 <main>
 <section class="report-section" id="diagram"><h2>Harness Diagram</h2><div class="diagram">${model.diagramSvg}</div></section>
@@ -853,6 +912,7 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
       : '<div class="report-section"><p class="empty">No connectors are defined.</p></div>'
   }</section>
 <section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
+<section class="report-section" id="twisted-pairs"><h2>Twisted Pairs</h2>${renderTable(model.twistedPairs, twistedPairColumns, "No twisted-pair relationships are defined.")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>
 <section class="report-section" id="validation"><h2>Notes / Validation</h2>${warnings}<p class="document-note">This HTML file is generated documentation. Continue editing the corresponding <code>.wireform.json</code> project as the authoritative source.</p></section>

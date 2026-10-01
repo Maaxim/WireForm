@@ -100,6 +100,17 @@ export interface TopologyLink {
   termination?: WireTermination;
 }
 
+export type TwistDirection = "S" | "Z" | "unspecified";
+
+export interface TwistedPair {
+  id: string;
+  designator: string;
+  members: string[];
+  twistPitchMm?: number;
+  twistDirection: TwistDirection;
+  note?: string;
+}
+
 export interface HarnessProject {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   projectId: string;
@@ -108,6 +119,7 @@ export interface HarnessProject {
   company: string;
   components: HarnessComponent[];
   links: TopologyLink[];
+  twistedPairs: TwistedPair[];
 }
 
 export interface ProjectFile {
@@ -183,6 +195,10 @@ function createId(prefix: string) {
 
 export function createAdditionalComponentId() {
   return createId("additional");
+}
+
+export function createTwistedPairId() {
+  return createId("twisted-pair");
 }
 
 function normalizedPhoto(value: unknown): ConnectorPhoto | undefined {
@@ -409,6 +425,7 @@ export function createEmptyProject(title = "Untitled Harness"): HarnessProject {
     company: "",
     components: [],
     links: [],
+    twistedPairs: [],
   };
 }
 
@@ -541,6 +558,34 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     return [{ id, from, to, ...(termination ? { termination } : {}) }];
   });
 
+  const usedPairIds = new Set<string>();
+  const twistedPairs = (Array.isArray(rawProject.twistedPairs)
+    ? rawProject.twistedPairs
+    : []
+  ).slice(0, MAX_COMPONENTS).flatMap((value, index) => {
+    const source = recordValue(value);
+    if (!source) return [];
+    let id = textValue(source.id, `twisted-pair-${index + 1}`, 240);
+    if (!id || usedPairIds.has(id)) id = createId("twisted-pair");
+    usedPairIds.add(id);
+    const members = stringList(source.members, 16);
+    const rawPitch = source.twistPitchMm;
+    const parsedPitch =
+      rawPitch === undefined || rawPitch === "" ? undefined : Number(rawPitch);
+    const direction: TwistDirection =
+      source.twistDirection === "S" || source.twistDirection === "Z"
+        ? source.twistDirection
+        : "unspecified";
+    return [{
+      id,
+      designator: textValue(source.designator, `TP${index + 1}`, 160),
+      members,
+      ...(parsedPitch !== undefined ? { twistPitchMm: parsedPitch } : {}),
+      twistDirection: direction,
+      ...(textValue(source.note) ? { note: textValue(source.note) } : {}),
+    }];
+  });
+
   const project: HarnessProject = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     projectId: textValue(rawProject.projectId, createId("project"), 240),
@@ -549,6 +594,7 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     company: textValue(rawProject.company, "", 500),
     components,
     links,
+    twistedPairs,
   };
   return {
     project,

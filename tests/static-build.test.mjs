@@ -39,6 +39,9 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Heat shrink/);
   assert.match(script, /Per total conductor length/);
   assert.match(script, /Placement \(WireForm only\)/);
+  assert.match(script, /Create twisted pair/);
+  assert.match(script, /Remove twisted pair/);
+  assert.match(script, /Twist pitch/);
   assert.match(script, /Export native BOM CSV/);
   assert.match(script, /Export self-contained HTML harness report/);
   assert.match(script, /Current topology validation issues/);
