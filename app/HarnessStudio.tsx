@@ -355,6 +355,7 @@ function createStarterProject(): HarnessProject {
     title: "CAN Sensor Harness",
     revision: "A",
     company: "",
+    notes: "",
     components,
     links,
     twistedPairs: [],
@@ -1791,11 +1792,7 @@ export function HarnessStudio() {
     setNotice("Rendering the self-contained HTML harness report…");
     try {
       const diagramSvg = await requestReportDiagram();
-      const report = buildHarnessReportModel(
-        project,
-        diagramSvg,
-        validation.warnings,
-      );
+      const report = buildHarnessReportModel(project, diagramSvg);
       downloadText(
         renderHarnessReportHtml(report),
         htmlReportFilenameForTitle(project.title),
@@ -2332,6 +2329,18 @@ export function HarnessStudio() {
             Add an object, then click two compatible ports to connect them.
           </p>
 
+          <button
+            className={`harness-notes-button ${!selected ? "active" : ""}`}
+            onClick={() => selectOnly(null)}
+            data-testid="open-harness-notes"
+          >
+            <FileText size={17} />
+            <span>
+              <strong>Harness notes</strong>
+              <small>Project-wide documentation</small>
+            </span>
+          </button>
+
           <div className="component-palette">
             {(Object.keys(KIND_META) as ComponentKind[]).map((kind) => {
               const meta = KIND_META[kind];
@@ -2860,6 +2869,26 @@ export function HarnessStudio() {
                       }
                     />
                   </Field>
+                </div>
+                <div className="harness-notes-editor">
+                  <Field label="Harness notes" hint="Plain text">
+                    <textarea
+                      rows={16}
+                      value={project.notes}
+                      onChange={(event) =>
+                        updateProject((draft) => {
+                          draft.notes = event.target.value;
+                        })
+                      }
+                      placeholder={
+                        "Assembly notes\n\n- Route wires away from power rails.\n\nRevision notes"
+                      }
+                    />
+                  </Field>
+                  <p>
+                    Saved with this project and included in the HTML report.
+                    Validation issues remain separate editor checks.
+                  </p>
                 </div>
                 <div className="empty-selection">
                   <CircleDot size={20} />

@@ -117,6 +117,7 @@ export interface HarnessProject {
   title: string;
   revision: string;
   company: string;
+  notes: string;
   components: HarnessComponent[];
   links: TopologyLink[];
   twistedPairs: TwistedPair[];
@@ -423,6 +424,7 @@ export function createEmptyProject(title = "Untitled Harness"): HarnessProject {
     title,
     revision: "A",
     company: "",
+    notes: "",
     components: [],
     links: [],
     twistedPairs: [],
@@ -592,6 +594,7 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     title: textValue(rawProject.title, "Untitled Harness", 500),
     revision: textValue(rawProject.revision, "", 160),
     company: textValue(rawProject.company, "", 500),
+    notes: textValue(rawProject.notes, "", MAX_TEXT),
     components,
     links,
     twistedPairs,

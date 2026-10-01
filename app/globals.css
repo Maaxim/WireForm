@@ -319,6 +319,45 @@ select:focus-visible {
   gap: 6px;
 }
 
+.harness-notes-button {
+  width: 100%;
+  min-height: 43px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 7px 9px;
+  color: #36545c;
+  text-align: left;
+  background: #f5f9f8;
+  border: 1px solid #cddfdd;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.harness-notes-button:hover,
+.harness-notes-button.active {
+  color: #176b70;
+  background: #eaf6f4;
+  border-color: #9bc9c5;
+}
+
+.harness-notes-button strong,
+.harness-notes-button small {
+  display: block;
+}
+
+.harness-notes-button strong {
+  font-size: 10px;
+}
+
+.harness-notes-button small {
+  margin-top: 2px;
+  color: #78888e;
+  font-size: 8px;
+}
+
 .palette-item {
   width: 100%;
   min-height: 50px;
@@ -966,6 +1005,25 @@ select:focus-visible {
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.harness-notes-editor {
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid #e2e8e7;
+}
+
+.harness-notes-editor textarea {
+  min-height: 230px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.harness-notes-editor p {
+  margin: -2px 0 10px;
+  color: #7c898e;
+  font-size: 8px;
+  line-height: 1.45;
 }
 
 .field {

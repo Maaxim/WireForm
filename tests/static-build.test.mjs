@@ -46,6 +46,9 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Export self-contained HTML harness report/);
   assert.match(script, /Current topology validation issues/);
   assert.match(script, /blocking issue/);
+  assert.match(script, /Harness notes/);
+  assert.match(script, /Project-wide documentation/);
+  assert.match(script, /Validation issues remain separate editor checks/);
   assert.match(script, /Saved locally/);
 
   await access(new URL("vendor/pyodide/pyodide.mjs", distRoot));

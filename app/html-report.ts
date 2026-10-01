@@ -28,6 +28,7 @@ export interface ReportProjectMetadata {
   title: string;
   revision: string;
   company: string;
+  notes: string;
   schemaVersion: number;
 }
 
@@ -122,7 +123,6 @@ export interface HarnessReportModel {
   twistedPairs: ReportTwistedPair[];
   terminations: ReportTermination[];
   bomRows: BomRow[];
-  warnings: string[];
 }
 
 interface PhysicalLinkContext {
@@ -689,13 +689,13 @@ export function sanitizeDiagramSvg(svg: string) {
 export function buildHarnessReportModel(
   project: HarnessProject,
   diagramSvg: string,
-  warnings: readonly string[] = [],
 ): HarnessReportModel {
   return {
     project: {
       title: project.title,
       revision: project.revision,
       company: project.company,
+      notes: project.notes ?? "",
       schemaVersion: project.schemaVersion,
     },
     diagramSvg: sanitizeDiagramSvg(diagramSvg),
@@ -704,7 +704,6 @@ export function buildHarnessReportModel(
     twistedPairs: buildTwistedPairs(project),
     terminations: buildTerminations(project),
     bomRows: buildBomRows(project),
-    warnings: [...warnings].sort(naturalCompare),
   };
 }
 
@@ -817,7 +816,7 @@ function cableAdditionalComponentsSection(cable: ReportCable) {
 
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
-*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.warnings{margin:0;padding-left:22px}.warnings li{margin:5px 0}.document-note{font-size:.83rem;color:#53636e}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
+*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}}
@@ -878,11 +877,12 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     },
     { heading: "Notes", value: (row) => row.notes, optional: true },
   ];
-  const warnings = model.warnings.length
-    ? `<ul class="warnings">${model.warnings
-        .map((warning) => `<li>${escapeHtml(warning)}</li>`)
-        .join("")}</ul>`
-    : '<p class="empty">No validation warnings.</p>';
+  const harnessNotes = model.project.notes ?? "";
+  const hasHarnessNotes = harnessNotes.trim().length > 0;
+  const notesSection = hasHarnessNotes
+    ? `<section class="report-section" id="notes"><h2>Notes</h2><p class="harness-notes">${escapeHtml(harnessNotes)}</p></section>`
+    : "";
+  const notesLink = hasHarnessNotes ? '<a href="#notes">Notes</a>' : "";
   const title = clean(model.project.title) || "Untitled Harness";
   return `<!doctype html>
 <html lang="en">
@@ -902,7 +902,7 @@ ${metadataItem("Revision", model.project.revision)}
 ${metadataItem("Company", model.project.company)}
 ${metadataItem("WireForm schema", model.project.schemaVersion)}
 </dl>
-<nav class="toc" aria-label="Report contents"><strong>Contents</strong><a href="#diagram">Diagram</a><a href="#connectors">Connectors</a><a href="#cables">Cables / wires</a><a href="#twisted-pairs">Twisted pairs</a><a href="#terminations">Terminations</a><a href="#bom">BOM</a><a href="#validation">Notes / validation</a></nav>
+<nav class="toc" aria-label="Report contents"><strong>Contents</strong><a href="#diagram">Diagram</a><a href="#connectors">Connectors</a><a href="#cables">Cables / wires</a><a href="#twisted-pairs">Twisted pairs</a><a href="#terminations">Terminations</a><a href="#bom">BOM</a>${notesLink}</nav>
 </header>
 <main>
 <section class="report-section" id="diagram"><h2>Harness Diagram</h2><div class="diagram">${model.diagramSvg}</div></section>
@@ -915,7 +915,7 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
 <section class="report-section" id="twisted-pairs"><h2>Twisted Pairs</h2>${renderTable(model.twistedPairs, twistedPairColumns, "No twisted-pair relationships are defined.")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>
-<section class="report-section" id="validation"><h2>Notes / Validation</h2>${warnings}<p class="document-note">This HTML file is generated documentation. Continue editing the corresponding <code>.wireform.json</code> project as the authoritative source.</p></section>
+${notesSection}
 <p class="report-footer">Generated by WireForm · self-contained offline report</p>
 </main>
 </body>

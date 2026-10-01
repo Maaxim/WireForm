@@ -116,15 +116,13 @@ test("report model maps metadata and naturally orders components", () => {
     component("wire", "w10", "W10"),
     component("wire", "w2", "W2"),
   );
-  const value = report.buildHarnessReportModel(project, SAFE_SVG, [
-    "Warning 10",
-    "Warning 2",
-  ]);
+  const value = report.buildHarnessReportModel(project, SAFE_SVG);
 
   assert.deepEqual(value.project, {
     title: "Production <Harness> & Report",
     revision: 'B "release"',
     company: "Müller & Söhne",
+    notes: "",
     schemaVersion: 3,
   });
   assert.deepEqual(
@@ -135,7 +133,6 @@ test("report model maps metadata and naturally orders components", () => {
     value.cables.map((item) => item.designator),
     ["W1", "W2", "W10"],
   );
-  assert.deepEqual(value.warnings, ["Warning 2", "Warning 10"]);
 });
 
 test("pinout maps signal, conductor, color, size, contact, and seal", () => {
@@ -248,6 +245,7 @@ test("legacy projects without termination metadata export correctly", () => {
 test("HTML escapes malicious text and preserves multiline notes", () => {
   const project = realisticProject();
   project.title = '<script>alert("title")</script> & test';
+  project.notes = "Assembly & release\n\n<script>alert('notes')</script>\n- Keep <clear>";
   project.components[0].notes = "Line one\nLine <two> & 'three'";
   const html = report.renderHarnessReportHtml(
     report.buildHarnessReportModel(project, SAFE_SVG),
@@ -259,7 +257,21 @@ test("HTML escapes malicious text and preserves multiline notes", () => {
   );
   assert.match(html, /SENSE &lt;HI&gt;/);
   assert.match(html, /Line one\nLine &lt;two&gt; &amp; &#39;three&#39;/);
+  assert.match(
+    html,
+    /Assembly &amp; release\n\n&lt;script&gt;alert\(&#39;notes&#39;\)&lt;\/script&gt;\n- Keep &lt;clear&gt;/,
+  );
   assert.match(html, /B &quot;release&quot;/);
+});
+
+test("blank harness notes omit the report section and navigation link", () => {
+  const project = realisticProject();
+  project.notes = " \n\n ";
+  const html = report.renderHarnessReportHtml(
+    report.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  assert.doesNotMatch(html, /id="notes"/);
+  assert.doesNotMatch(html, /href="#notes"/);
 });
 
 test("embedded images remain while blob and external images are omitted", () => {
@@ -319,10 +331,10 @@ test("SVG sanitizer rejects executable and external content", () => {
 });
 
 test("standalone HTML has report sections, CSP, and print CSS", () => {
+  const project = realisticProject();
+  project.notes = "Assembly notes\n\n- Keep TP1 away from power wiring.";
   const html = report.renderHarnessReportHtml(
-    report.buildHarnessReportModel(realisticProject(), SAFE_SVG, [
-      "Review open ends.",
-    ]),
+    report.buildHarnessReportModel(project, SAFE_SVG),
   );
   assert.match(html, /^<!doctype html>/);
   assert.match(html, /<header>/);
@@ -330,8 +342,10 @@ test("standalone HTML has report sections, CSP, and print CSS", () => {
   assert.match(html, /id="connectors"/);
   assert.match(html, /id="terminations"/);
   assert.match(html, /id="bom"/);
+  assert.match(html, /id="notes"/);
   assert.match(html, /CONTACT-A/);
-  assert.match(html, /Review open ends\./);
+  assert.match(html, /Assembly notes\n\n- Keep TP1 away from power wiring\./);
+  assert.doesNotMatch(html, /id="validation"|Notes \/ Validation|validation warnings/i);
   assert.match(html, /default-src 'none'/);
   assert.match(html, /@media print/);
   assert.match(html, /thead\{display:table-header-group/);
