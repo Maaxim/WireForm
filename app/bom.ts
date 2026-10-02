@@ -195,6 +195,7 @@ function additionalContribution(
   return {
     ...contribution,
     unit: clean(additional.unit) || "pcs",
+    notes: clean(additional.notes),
   };
 }
 

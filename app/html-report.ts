@@ -13,7 +13,6 @@ import {
 import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
-  type ConnectorAdditionalComponent,
   type HarnessComponent,
   type HarnessProject,
   type TerminationPart,
@@ -61,7 +60,19 @@ export interface ReportConnector {
     height: number;
   };
   pins: ReportPin[];
-  additionalComponents: ConnectorAdditionalComponent[];
+  additionalComponents: ReportConnectorAdditionalComponent[];
+}
+
+export interface ReportConnectorAdditionalComponent {
+  type: string;
+  manufacturer: string;
+  mpn: string;
+  description: string;
+  baseQuantity: number;
+  quantityMode: string;
+  calculatedQuantity: number | string;
+  unit: string;
+  notes: string;
 }
 
 export interface ReportCable {
@@ -288,8 +299,22 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
         notes: component.notes,
         ...(photo ? { photo } : {}),
         pins: pinRows(project, component),
-        additionalComponents: structuredClone(
-          component.additionalComponents ?? [],
+        additionalComponents: (component.additionalComponents ?? []).map(
+          (additional) => ({
+            type: additional.type ?? "",
+            manufacturer: additional.manufacturer ?? "",
+            mpn: additional.mpn ?? additional.pn ?? "",
+            description: additional.subtype ?? "",
+            baseQuantity: additional.qty ?? 1,
+            quantityMode: additionalComponentModeLabel(
+              additional.qtyMultiplier,
+            ),
+            calculatedQuantity:
+              additionalComponentQuantity(project, component, additional) ??
+              "Unavailable",
+            unit: additional.unit ?? "pcs",
+            notes: additional.notes ?? "",
+          }),
         ),
       };
     });
@@ -772,6 +797,30 @@ function connectorSection(connector: ReportConnector, index: number) {
         connector.photo.height
       }"><figcaption>${escapeHtml(connector.photo.alt)}</figcaption></figure>`
     : "";
+  const additionalComponentColumns: Array<
+    TableColumn<ReportConnectorAdditionalComponent>
+  > = [
+    { heading: "Type", value: (row) => row.type },
+    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
+    { heading: "MPN", value: (row) => row.mpn, optional: true },
+    { heading: "Description", value: (row) => row.description, optional: true },
+    { heading: "Base qty", value: (row) => row.baseQuantity, numeric: true },
+    { heading: "Rule", value: (row) => row.quantityMode },
+    {
+      heading: "Calculated",
+      value: (row) => row.calculatedQuantity,
+      numeric: true,
+    },
+    { heading: "Unit", value: (row) => row.unit },
+    { heading: "Notes", value: (row) => row.notes, optional: true },
+  ];
+  const additionalComponents = connector.additionalComponents.length
+    ? `<h4>Additional Components</h4>${renderTable(
+        connector.additionalComponents,
+        additionalComponentColumns,
+        "No connector accessories are assigned.",
+      )}`
+    : "";
   return `<article class="connector-card" id="connector-${index + 1}">
 <h3>${escapeHtml(connector.designator)} <span>${escapeHtml(connector.name || connector.kind)}</span></h3>
 <div class="connector-overview"><dl class="metadata compact">
@@ -785,6 +834,7 @@ ${metadataItem("Pin count", connector.pinCount)}
 ${connector.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(connector.notes)}</p>` : ""}
 <h4>Pinout</h4>
 ${renderTable(connector.pins, pinColumns, "No pins are defined.")}
+${additionalComponents}
 </article>`;
 }
 

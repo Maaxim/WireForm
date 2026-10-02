@@ -18,6 +18,8 @@ machine.
 - Wire colors, labels, gauge, length, shields, loops, and BOM fields
 - Generic cable/wire additional components with heat-shrink, physical wire-label,
   ferrite, and generic presets
+- Generic connector additional components with Secondary Lock / TPA and generic
+  accessory presets
 - Project-level twisted-pair relationships between two independent single wires
 - Project-wide plain-text harness notes with offline HTML report inclusion
 - Hold and drag to select multiple components
@@ -60,22 +62,26 @@ machine.
    accessories. Quantity modes map to WireViz's fixed, `wirecount`,
    `terminations`, `length`, and `total_length` rules; the inspector previews
    the same effective quantity used by the native BOM.
-9. Shift-select exactly two unpaired, single-conductor **Wire** components and
+9. For a selected connector, use **Additional components** to add a Secondary
+   Lock / TPA or another connector accessory. Choose a fixed quantity or the
+   WireViz-compatible per-populated-position mode. Accessories saved in a User
+   Library connector template are independently cloned when inserted.
+10. Shift-select exactly two unpaired, single-conductor **Wire** components and
    choose **Create twisted pair** in the inspector. Each member inspector can
    edit the pair designator, optional pitch, S/Z/unspecified direction, and
    notes, or remove the relationship without deleting either wire. A wire may
    belong to only one pair; unequal member lengths or gauges produce warnings.
-10. Choose **Harness notes** in the left panel to edit project-wide assembly and
+11. Choose **Harness notes** in the left panel to edit project-wide assembly and
    revision documentation. Notes do not require a component selection and are
    stored in the editable `.wireform.json` project.
-11. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
+12. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
-12. Choose the document icon to export a self-contained HTML engineering report.
+13. Choose the document icon to export a self-contained HTML engineering report.
    The report opens offline, includes the vector diagram and embedded connector
    photos, and is styled for browser printing or **Save as PDF**.
-13. Review the generated WireViz preview or YAML in the lower panel.
-14. Resolve validation errors and choose **Download YAML**.
+14. Review the generated WireViz preview or YAML in the lower panel.
+15. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -97,6 +103,14 @@ conductors, and placement notes are WireForm-only: they remain in project files
 and native HTML reports and are deliberately omitted from YAML. Conductor
 `wirelabels` are identification text; a **Wire label** additional component is
 the separately purchased physical labeling product.
+
+Connector additional components are user-authored connector accessories. Their
+standard part, quantity, and `qty_multiplier: populated` fields round-trip
+through WireViz connector `additional_components`, contribute once to the
+native BOM, appear in each connector's HTML report section, and remain part of
+User Library templates. Crimp contacts and seals remain per-termination data
+and are aggregated automatically for BOM and WireViz export; WireForm never
+stores those generated aggregates in the connector accessory list.
 
 Native BOM export runs entirely in the browser and does not use WireViz YAML,
 Python, Graphviz, or a backend. Cable and wire lengths are normalized to meters;

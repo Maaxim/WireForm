@@ -13,6 +13,8 @@ export type AdditionalComponentPreset =
   | "heat-shrink"
   | "wire-label"
   | "ferrite"
+  | "secondary-lock-tpa"
+  | "connector-generic"
   | "generic";
 
 export const CABLE_QUANTITY_MODES = [
@@ -31,6 +33,13 @@ export const CONNECTOR_QTY_MULTIPLIERS = new Set([
   "populated",
   "unpopulated",
 ]);
+
+export const CONNECTOR_QUANTITY_MODES = [
+  { value: "", label: "Fixed quantity" },
+  { value: "populated", label: "Per populated position" },
+  { value: "pincount", label: "Per connector position" },
+  { value: "unpopulated", label: "Per unpopulated position" },
+] as const;
 
 const STANDARD_PART_FIELDS = [
   "type",
@@ -109,6 +118,16 @@ export function createAdditionalComponentPreset(
       unit: "pcs",
       placement: { scope: "cable" },
     };
+  }
+  if (preset === "secondary-lock-tpa") {
+    return {
+      ...base,
+      type: "Secondary Lock / TPA",
+      unit: "pcs",
+    };
+  }
+  if (preset === "connector-generic") {
+    return { ...base, unit: "pcs" };
   }
   return base;
 }
@@ -189,8 +208,9 @@ export function additionalComponentQuantity(
 
 export function additionalComponentModeLabel(multiplier: string | undefined) {
   return (
-    CABLE_QUANTITY_MODES.find((mode) => mode.value === (multiplier ?? ""))
-      ?.label ?? `Unknown (${multiplier})`
+    [...CABLE_QUANTITY_MODES, ...CONNECTOR_QUANTITY_MODES].find(
+      (mode) => mode.value === (multiplier ?? ""),
+    )?.label ?? `Unknown (${multiplier})`
   );
 }
 
@@ -238,9 +258,10 @@ export function validateAdditionalComponents(project: HarnessProject) {
     for (const [index, component] of (
       owner.additionalComponents ?? []
     ).entries()) {
+      const type = clean(component.type);
       const label = `${owner.designator || owner.kind} additional component ${
         index + 1
-      }`;
+      }${type ? ` (${type})` : ""}`;
       if (!clean(component.type)) warnings.push(`${label} is missing its type.`);
       if (
         component.qty !== undefined &&

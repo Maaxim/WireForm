@@ -52,6 +52,7 @@ import {
 } from "./bom";
 import {
   CABLE_QUANTITY_MODES,
+  CONNECTOR_QUANTITY_MODES,
   additionalComponentModeLabel,
   additionalComponentQuantity,
   additionalComponentToWireViz,
@@ -1272,13 +1273,13 @@ export function HarnessStudio() {
     );
   };
 
-  const addCableAdditionalComponent = (preset: AdditionalComponentPreset) => {
+  const addAdditionalComponent = (preset: AdditionalComponentPreset) => {
     if (!selectedId) return;
     const component = createAdditionalComponentPreset(preset);
     updateProject(
       (draft) => {
         const node = draft.components.find((item) => item.id === selectedId);
-        if (!node || !CABLE_KINDS.includes(node.kind)) return;
+        if (!node) return;
         node.additionalComponents = [
           ...(node.additionalComponents ?? []),
           component,
@@ -1288,7 +1289,7 @@ export function HarnessStudio() {
     );
   };
 
-  const updateCableAdditionalComponent = (
+  const updateAdditionalComponent = (
     componentId: string,
     patch: Partial<AdditionalComponent>,
   ) => {
@@ -1322,7 +1323,7 @@ export function HarnessStudio() {
     });
   };
 
-  const duplicateCableAdditionalComponent = (componentId: string) => {
+  const duplicateAdditionalComponent = (componentId: string) => {
     if (!selectedId) return;
     updateProject(
       (draft) => {
@@ -1338,7 +1339,7 @@ export function HarnessStudio() {
     );
   };
 
-  const deleteCableAdditionalComponent = (componentId: string) => {
+  const deleteAdditionalComponent = (componentId: string) => {
     if (!selectedId) return;
     updateProject(
       (draft) => {
@@ -3371,23 +3372,33 @@ export function HarnessStudio() {
                   <CableAdditionalComponentsSection
                     project={project}
                     cable={selected}
-                    onAdd={addCableAdditionalComponent}
-                    onChange={updateCableAdditionalComponent}
+                    onAdd={addAdditionalComponent}
+                    onChange={updateAdditionalComponent}
                     onPlacementChange={updateCableAdditionalPlacement}
-                    onDuplicate={duplicateCableAdditionalComponent}
-                    onDelete={deleteCableAdditionalComponent}
+                    onDuplicate={duplicateAdditionalComponent}
+                    onDelete={deleteAdditionalComponent}
                   />
                 )}
 
                 {CONNECTOR_KINDS.includes(selected.kind) && (
-                  <PinTerminationsSection
-                    project={project}
-                    connector={selected}
-                    onPartChange={updateTerminationPart}
-                    onFieldChange={updateTerminationField}
-                    onClear={clearTermination}
-                    onApplyContact={applyContactToConnector}
-                  />
+                  <>
+                    <PinTerminationsSection
+                      project={project}
+                      connector={selected}
+                      onPartChange={updateTerminationPart}
+                      onFieldChange={updateTerminationField}
+                      onClear={clearTermination}
+                      onApplyContact={applyContactToConnector}
+                    />
+                    <ConnectorAdditionalComponentsSection
+                      project={project}
+                      connector={selected}
+                      onAdd={addAdditionalComponent}
+                      onChange={updateAdditionalComponent}
+                      onDuplicate={duplicateAdditionalComponent}
+                      onDelete={deleteAdditionalComponent}
+                    />
+                  </>
                 )}
 
                 <details className="property-section collapsible" open>
@@ -3867,6 +3878,240 @@ function optionalNumber(value: string) {
   if (value.trim() === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function ConnectorAdditionalComponentsSection({
+  project,
+  connector,
+  onAdd,
+  onChange,
+  onDuplicate,
+  onDelete,
+}: {
+  project: HarnessProject;
+  connector: HarnessComponent;
+  onAdd: (preset: AdditionalComponentPreset) => void;
+  onChange: (id: string, patch: Partial<AdditionalComponent>) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const components = connector.additionalComponents ?? [];
+  return (
+    <div className="property-section additional-components-section connector-additional-components">
+      <h3>Additional components</h3>
+      <p className="section-note">
+        User-authored connector accessories. Pin contacts and seals remain
+        termination data.
+      </p>
+      <div className="additional-preset-grid connector-preset-grid">
+        <button type="button" onClick={() => onAdd("secondary-lock-tpa")}>
+          <Plus size={12} /> Secondary Lock / TPA
+        </button>
+        <button type="button" onClick={() => onAdd("connector-generic")}>
+          <Plus size={12} /> Generic component
+        </button>
+      </div>
+      {!components.length ? (
+        <p className="additional-empty">No connector accessories assigned.</p>
+      ) : (
+        <div className="additional-component-list">
+          {components.map((component, index) => {
+            const effective = additionalComponentQuantity(
+              project,
+              connector,
+              component,
+            );
+            const mode = additionalComponentModeLabel(component.qtyMultiplier);
+            const unit = component.unit?.trim() || "pcs";
+            const unknownMode =
+              component.qtyMultiplier &&
+              !CONNECTOR_QUANTITY_MODES.some(
+                (option) => option.value === component.qtyMultiplier,
+              );
+            return (
+              <details className="additional-component-row" key={component.id}>
+                <summary>
+                  <div>
+                    <strong>
+                      {component.type?.trim() || `Component ${index + 1}`}
+                    </strong>
+                    <span>
+                      {component.manufacturer?.trim() || "Generic"}
+                      {component.mpn?.trim() ? ` · ${component.mpn}` : ""} · {mode}
+                      {" · "}Calculated {effective ?? "—"} {unit}
+                    </span>
+                  </div>
+                  <ChevronDown size={13} />
+                </summary>
+                <div className="additional-component-editor">
+                  <div className="field-row">
+                    <Field label="Type">
+                      <input
+                        value={component.type ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { type: event.target.value })
+                        }
+                        placeholder="Required for WireViz"
+                      />
+                    </Field>
+                    <Field label="Subtype / description">
+                      <input
+                        value={component.subtype ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { subtype: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                  </div>
+                  <div className="field-row">
+                    <Field label="Manufacturer">
+                      <input
+                        value={component.manufacturer ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            manufacturer: event.target.value,
+                          })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                    <Field label="Manufacturer P/N">
+                      <input
+                        value={component.mpn ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { mpn: event.target.value })
+                        }
+                        placeholder="5051520400"
+                      />
+                    </Field>
+                  </div>
+                  <div className="field-row">
+                    <Field label="Quantity">
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={component.qty ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            qty: optionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="1"
+                      />
+                    </Field>
+                    <Field label="Unit">
+                      <input
+                        value={component.unit ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { unit: event.target.value })
+                        }
+                        placeholder="pcs"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Quantity mode">
+                    <div className="select-wrap">
+                      <select
+                        value={component.qtyMultiplier ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, {
+                            qtyMultiplier: event.target.value || undefined,
+                          })
+                        }
+                      >
+                        {unknownMode && (
+                          <option value={component.qtyMultiplier}>
+                            Unknown: {component.qtyMultiplier}
+                          </option>
+                        )}
+                        {CONNECTOR_QUANTITY_MODES.map((option) => (
+                          <option key={option.value || "fixed"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={13} />
+                    </div>
+                  </Field>
+                  <p className="calculated-quantity">
+                    Calculated quantity: <strong>{effective ?? "Unavailable"}</strong>{" "}
+                    {effective !== undefined ? unit : ""}
+                  </p>
+                  <Field label="Accessory notes" hint="WireForm only">
+                    <textarea
+                      rows={2}
+                      value={component.notes ?? ""}
+                      onChange={(event) =>
+                        onChange(component.id, { notes: event.target.value })
+                      }
+                      placeholder="Assembly or purchasing notes"
+                    />
+                  </Field>
+                  <details className="additional-advanced">
+                    <summary>Part details</summary>
+                    <Field label="Internal part number">
+                      <input
+                        value={component.pn ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { pn: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                    <div className="field-row">
+                      <Field label="Supplier">
+                        <input
+                          value={component.supplier ?? ""}
+                          onChange={(event) =>
+                            onChange(component.id, {
+                              supplier: event.target.value,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                      <Field label="Supplier P/N">
+                        <input
+                          value={component.spn ?? ""}
+                          onChange={(event) =>
+                            onChange(component.id, { spn: event.target.value })
+                          }
+                          placeholder="Optional"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="WireViz background color">
+                      <input
+                        value={component.bgcolor ?? ""}
+                        onChange={(event) =>
+                          onChange(component.id, { bgcolor: event.target.value })
+                        }
+                        placeholder="Optional"
+                      />
+                    </Field>
+                  </details>
+                  <div className="additional-component-actions">
+                    <button type="button" onClick={() => onDuplicate(component.id)}>
+                      <Copy size={13} /> Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => onDelete(component.id)}
+                    >
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CableAdditionalComponentsSection({

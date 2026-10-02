@@ -56,6 +56,7 @@ export interface AdditionalComponent extends TerminationPart {
   unit?: string;
   qtyMultiplier?: string;
   bgcolor?: string;
+  notes?: string;
   placement?: AdditionalComponentPlacement;
 }
 
@@ -330,12 +331,14 @@ export function normalizeAdditionalComponents(
     const placement = normalizeAdditionalComponentPlacement(source.placement);
     const unit = nonEmptyText(source.unit, 80);
     const bgcolor = nonEmptyText(source.bgcolor, 80);
+    const notes = nonEmptyText(source.notes, MAX_TEXT);
     if (
       !part &&
       quantity === undefined &&
       !qtyMultiplier &&
       !unit &&
       !bgcolor &&
+      !notes &&
       !placement
     ) {
       return [];
@@ -348,6 +351,7 @@ export function normalizeAdditionalComponents(
         ...(unit ? { unit } : {}),
         ...(qtyMultiplier ? { qtyMultiplier } : {}),
         ...(bgcolor ? { bgcolor } : {}),
+        ...(notes ? { notes } : {}),
         ...(placement ? { placement } : {}),
       },
     ];
