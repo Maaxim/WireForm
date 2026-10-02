@@ -1267,6 +1267,44 @@ select:focus-visible {
   border-color: #eed4d0;
 }
 
+.approved-alternatives-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e7e6;
+}
+
+.approved-alternatives-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.approved-alternatives-heading h4 {
+  margin: 0;
+  color: #4f6068;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.approved-alternatives-heading button {
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: #176b70;
+  background: white;
+  border: 1px solid #bededb;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .termination-list {
   display: grid;
   gap: 5px;

@@ -3,10 +3,15 @@ import {
   CONNECTOR_KINDS,
   makeComponent,
   normalizeAdditionalComponents,
+  normalizeApprovedPartAlternatives,
   type ComponentKind,
   type HarnessComponent,
 } from "./model.ts";
 import { cloneAdditionalComponentsWithNewIds } from "./additional-components.ts";
+import {
+  cloneApprovedAlternativesWithNewIds,
+  supportsApprovedAlternatives,
+} from "./approved-alternatives.ts";
 
 export const LIBRARY_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const LIBRARY_FILE_FORMAT = "wireviz-gui-component-library";
@@ -224,6 +229,9 @@ function normalizedTemplate(
   const additionalComponents = normalizeAdditionalComponents(
     componentSource.additionalComponents,
   );
+  const approvedAlternatives = supportsApprovedAlternatives(kind)
+    ? normalizeApprovedPartAlternatives(componentSource.approvedAlternatives)
+    : undefined;
   const timestamp = now();
   return {
     id: textValue(source.id, createId("template"), 240),
@@ -264,6 +272,7 @@ function normalizedTemplate(
       notes: textValue(componentSource.notes, "", 4_000),
       ...(photo ? { photo } : {}),
       ...(additionalComponents ? { additionalComponents } : {}),
+      ...(approvedAlternatives ? { approvedAlternatives } : {}),
     },
     createdAt: textValue(source.createdAt, timestamp, 80),
     updatedAt: textValue(source.updatedAt, timestamp, 80),
@@ -406,6 +415,9 @@ export function instantiateTemplate(
   };
   component.additionalComponents = cloneAdditionalComponentsWithNewIds(
     component.additionalComponents,
+  );
+  component.approvedAlternatives = cloneApprovedAlternativesWithNewIds(
+    component.approvedAlternatives,
   );
   return component;
 }

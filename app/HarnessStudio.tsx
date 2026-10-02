@@ -62,6 +62,12 @@ import {
   type AdditionalComponentPreset,
 } from "./additional-components";
 import {
+  cloneApprovedAlternativesWithNewIds,
+  createApprovedPartAlternative,
+  supportsApprovedAlternatives,
+  validateApprovedAlternatives,
+} from "./approved-alternatives";
+import {
   buildHarnessReportModel,
   htmlReportFilenameForTitle,
   renderHarnessReportHtml,
@@ -95,6 +101,7 @@ import {
   serializeProjectFile,
   type AdditionalComponent,
   type AdditionalComponentPlacement,
+  type ApprovedPartAlternative,
   type ComponentKind,
   type HarnessComponent,
   type HarnessProject,
@@ -449,7 +456,7 @@ function parseLoops(value: string, pinCount: number) {
     );
 }
 
-function buildWireVizDocument(project: HarnessProject) {
+export function buildWireVizDocument(project: HarnessProject) {
   const connectorNodes = project.components
     .filter((node) => CONNECTOR_KINDS.includes(node.kind))
     .sort((a, b) => naturalSort(a.designator, b.designator));
@@ -645,6 +652,9 @@ function validateProject(project: HarnessProject): ValidationResult {
   const additionalComponentIssues = validateAdditionalComponents(project);
   errors.push(...additionalComponentIssues.errors);
   warnings.push(...additionalComponentIssues.warnings);
+  const approvedAlternativeIssues = validateApprovedAlternatives(project);
+  errors.push(...approvedAlternativeIssues.errors);
+  warnings.push(...approvedAlternativeIssues.warnings);
   const twistedPairIssues = validateTwistedPairs(project);
   errors.push(...twistedPairIssues.errors);
   warnings.push(...twistedPairIssues.warnings);
@@ -960,6 +970,9 @@ export function HarnessStudio() {
       colors: [...component.colors],
       additionalComponents: cloneAdditionalComponentsWithNewIds(
         component.additionalComponents,
+      ),
+      approvedAlternatives: cloneApprovedAlternativesWithNewIds(
+        component.approvedAlternatives,
       ),
     }));
     const pastedLinks = clipboard.links.map((link, index) =>
@@ -1351,6 +1364,72 @@ export function HarnessStudio() {
         node.additionalComponents = remaining.length ? remaining : undefined;
       },
       "Additional component removed.",
+    );
+  };
+
+  const addApprovedAlternative = () => {
+    if (!selectedId) return;
+    const alternative = createApprovedPartAlternative();
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        if (!node || !supportsApprovedAlternatives(node.kind)) return;
+        node.approvedAlternatives = [
+          ...(node.approvedAlternatives ?? []),
+          alternative,
+        ];
+      },
+      "Approved alternative added.",
+    );
+  };
+
+  const updateApprovedAlternative = (
+    alternativeId: string,
+    patch: Partial<ApprovedPartAlternative>,
+  ) => {
+    if (!selectedId) return;
+    updateProject((draft) => {
+      const node = draft.components.find((item) => item.id === selectedId);
+      const alternative = node?.approvedAlternatives?.find(
+        (item) => item.id === alternativeId,
+      );
+      if (alternative) Object.assign(alternative, patch);
+    });
+  };
+
+  const duplicateApprovedAlternative = (alternativeId: string) => {
+    if (!selectedId) return;
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        const source = node?.approvedAlternatives?.find(
+          (item) => item.id === alternativeId,
+        );
+        if (!node || !source) return;
+        const [copy] = cloneApprovedAlternativesWithNewIds([source]) ?? [];
+        if (copy) {
+          node.approvedAlternatives = [
+            ...(node.approvedAlternatives ?? []),
+            copy,
+          ];
+        }
+      },
+      "Approved alternative duplicated.",
+    );
+  };
+
+  const deleteApprovedAlternative = (alternativeId: string) => {
+    if (!selectedId) return;
+    updateProject(
+      (draft) => {
+        const node = draft.components.find((item) => item.id === selectedId);
+        if (!node) return;
+        const remaining = (node.approvedAlternatives ?? []).filter(
+          (item) => item.id !== alternativeId,
+        );
+        node.approvedAlternatives = remaining.length ? remaining : undefined;
+      },
+      "Approved alternative removed.",
     );
   };
 
@@ -3445,6 +3524,15 @@ export function HarnessStudio() {
                         />
                       </Field>
                     </div>
+                    {supportsApprovedAlternatives(selected.kind) && (
+                      <ApprovedAlternativesSection
+                        component={selected}
+                        onAdd={addApprovedAlternative}
+                        onChange={updateApprovedAlternative}
+                        onDuplicate={duplicateApprovedAlternative}
+                        onDelete={deleteApprovedAlternative}
+                      />
+                    )}
                   </div>
                 </details>
 
@@ -3878,6 +3966,112 @@ function optionalNumber(value: string) {
   if (value.trim() === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function ApprovedAlternativesSection({
+  component,
+  onAdd,
+  onChange,
+  onDuplicate,
+  onDelete,
+}: {
+  component: HarnessComponent;
+  onAdd: () => void;
+  onChange: (id: string, patch: Partial<ApprovedPartAlternative>) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const alternatives = component.approvedAlternatives ?? [];
+  return (
+    <div className="approved-alternatives-section">
+      <div className="approved-alternatives-heading">
+        <h4>Approved alternatives</h4>
+        <button type="button" onClick={onAdd}>
+          <Plus size={12} /> Add alternative
+        </button>
+      </div>
+      <p className="section-note">
+        Acceptable substitutes for the primary part above. They do not add BOM
+        quantity.
+      </p>
+      {!alternatives.length ? (
+        <p className="additional-empty">No approved alternatives.</p>
+      ) : (
+        <div className="additional-component-list">
+          {alternatives.map((alternative, index) => {
+            const manufacturer = alternative.manufacturer?.trim() ?? "";
+            const mpn = alternative.mpn?.trim() ?? "";
+            return (
+              <details
+                className="additional-component-row approved-alternative-row"
+                key={alternative.id}
+              >
+                <summary>
+                  <div>
+                    <strong>
+                      {[manufacturer, mpn].filter(Boolean).join(" / ") ||
+                        `Alternative ${index + 1}`}
+                    </strong>
+                    <span>{alternative.note?.trim() || "Approved substitute"}</span>
+                  </div>
+                  <ChevronDown size={13} />
+                </summary>
+                <div className="additional-component-editor">
+                  <div className="field-row">
+                    <Field label="Alternative manufacturer">
+                      <input
+                        value={alternative.manufacturer ?? ""}
+                        onChange={(event) =>
+                          onChange(alternative.id, {
+                            manufacturer: event.target.value,
+                          })
+                        }
+                        placeholder="Optional when MPN is sufficient"
+                      />
+                    </Field>
+                    <Field label="Alternative MPN">
+                      <input
+                        value={alternative.mpn ?? ""}
+                        onChange={(event) =>
+                          onChange(alternative.id, { mpn: event.target.value })
+                        }
+                        placeholder="Approved substitute"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Alternative note">
+                    <textarea
+                      rows={2}
+                      value={alternative.note ?? ""}
+                      onChange={(event) =>
+                        onChange(alternative.id, { note: event.target.value })
+                      }
+                      placeholder="Drop-in, revision restriction, color, toolingâ€¦"
+                    />
+                  </Field>
+                  <div className="additional-component-actions">
+                    <button
+                      type="button"
+                      onClick={() => onDuplicate(alternative.id)}
+                    >
+                      <Copy size={13} /> Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => onDelete(alternative.id)}
+                    >
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ConnectorAdditionalComponentsSection({

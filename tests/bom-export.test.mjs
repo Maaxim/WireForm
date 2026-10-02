@@ -337,6 +337,6 @@ test("BOM filenames are sanitized with a stable fallback", () => {
 test("an empty project produces a deterministic header-only CSV", () => {
   assert.equal(
     bom.serializeBomCsv([]),
-    "\uFEFFItem,Category,Manufacturer,MPN,Description,Qty,Unit,Designators,Notes\r\n",
+    "\uFEFFItem,Category,Manufacturer,MPN,Description,Qty,Unit,Designators,Approved Alternatives,Notes\r\n",
   );
 });

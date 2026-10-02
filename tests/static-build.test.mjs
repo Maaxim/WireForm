@@ -40,6 +40,9 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Secondary Lock \/ TPA/);
   assert.match(script, /Per populated position/);
   assert.match(script, /Pin contacts and seals remain termination data/);
+  assert.match(script, /Approved alternatives/);
+  assert.match(script, /They do not add BOM quantity/);
+  assert.match(script, /Alternative manufacturer/);
   assert.match(script, /Per total conductor length/);
   assert.match(script, /Placement \(WireForm only\)/);
   assert.match(script, /Create twisted pair/);

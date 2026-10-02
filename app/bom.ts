@@ -2,6 +2,7 @@ import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
   type AdditionalComponent,
+  type ApprovedPartAlternative,
   type HarnessComponent,
   type HarnessProject,
   type TerminationPart,
@@ -11,6 +12,11 @@ import {
   parseLengthMeters,
   roundedAdditionalQuantity,
 } from "./additional-components.ts";
+import {
+  canonicalApprovedAlternativeSet,
+  componentApprovedAlternatives,
+  formatApprovedAlternatives,
+} from "./approved-alternatives.ts";
 import { isPhysicalTerminationLink } from "./termination.ts";
 
 export interface BomRow {
@@ -22,7 +28,13 @@ export interface BomRow {
   unit: string;
   designators: string[];
   notes: string;
+  approvedAlternatives?: BomApprovedAlternative[];
 }
+
+export type BomApprovedAlternative = Pick<
+  ApprovedPartAlternative,
+  "manufacturer" | "mpn" | "note"
+>;
 
 interface BomContribution extends BomRow {
   identityDescription: string;
@@ -37,6 +49,7 @@ interface AggregatedContribution {
   descriptions: Set<string>;
   designators: Set<string>;
   notes: Set<string>;
+  approvedAlternatives?: BomApprovedAlternative[];
 }
 
 const CSV_COLUMNS = [
@@ -48,6 +61,7 @@ const CSV_COLUMNS = [
   "Qty",
   "Unit",
   "Designators",
+  "Approved Alternatives",
   "Notes",
 ] as const;
 function clean(value: string | undefined) {
@@ -120,6 +134,9 @@ function baseComponentContribution(
   component: HarnessComponent,
 ): BomContribution {
   const description = componentDescription(component);
+  const approvedAlternatives = componentApprovedAlternatives(component).map(
+    ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
+  );
   return {
     category: componentCategory(component),
     manufacturer: clean(component.manufacturer),
@@ -130,6 +147,7 @@ function baseComponentContribution(
     unit: "pcs",
     designators: clean(component.designator) ? [clean(component.designator)] : [],
     notes: clean(component.notes),
+    ...(approvedAlternatives?.length ? { approvedAlternatives } : {}),
   };
 }
 
@@ -234,6 +252,7 @@ function groupingKey(contribution: BomContribution) {
     contribution.category,
     ...identity,
     contribution.unit,
+    canonicalApprovedAlternativeSet(contribution.approvedAlternatives),
   ]);
 }
 
@@ -269,6 +288,13 @@ function aggregateContributions(contributions: BomContribution[]) {
       ),
       designators: new Set(contribution.designators.filter(Boolean)),
       notes: new Set(contribution.notes ? [contribution.notes] : []),
+      ...(contribution.approvedAlternatives?.length
+        ? {
+            approvedAlternatives: structuredClone(
+              contribution.approvedAlternatives,
+            ),
+          }
+        : {}),
     });
   }
   return [...grouped.values()].map<BomRow>((group) => ({
@@ -280,6 +306,9 @@ function aggregateContributions(contributions: BomContribution[]) {
     unit: group.unit,
     designators: [...group.designators].sort(naturalCompare),
     notes: [...group.notes].sort(naturalCompare).join("; "),
+    ...(group.approvedAlternatives?.length
+      ? { approvedAlternatives: group.approvedAlternatives }
+      : {}),
   }));
 }
 
@@ -290,6 +319,10 @@ export function sortBomRows(rows: BomRow[]) {
       [left.manufacturer, right.manufacturer],
       [left.mpn, right.mpn],
       [left.description, right.description],
+      [
+        formatApprovedAlternatives(left.approvedAlternatives),
+        formatApprovedAlternatives(right.approvedAlternatives),
+      ],
       [left.unit, right.unit],
       [left.designators.join("\0"), right.designators.join("\0")],
     ]) {
@@ -369,6 +402,7 @@ export function serializeBomCsv(rows: BomRow[]) {
         formatBomQuantity(row.quantity),
         row.unit,
         [...row.designators].sort(naturalCompare).join(", "),
+        formatApprovedAlternatives(row.approvedAlternatives),
         row.notes,
       ]
         .map(escapeCsvField)

@@ -198,6 +198,7 @@ test("multiconductor cable appears once with modeled length and endpoints", () =
       notes: "Route away from motor",
       twistedPair: "",
       additionalComponents: [],
+      approvedAlternatives: [],
     },
   ]);
 });

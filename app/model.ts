@@ -60,6 +60,13 @@ export interface AdditionalComponent extends TerminationPart {
   placement?: AdditionalComponentPlacement;
 }
 
+export interface ApprovedPartAlternative {
+  id: string;
+  manufacturer?: string;
+  mpn?: string;
+  note?: string;
+}
+
 // Kept as an alias for callers that describe connector-specific WireViz data.
 export type ConnectorAdditionalComponent = AdditionalComponent;
 
@@ -86,6 +93,7 @@ export interface HarnessComponent {
   notes: string;
   photo?: ConnectorPhoto;
   additionalComponents?: ConnectorAdditionalComponent[];
+  approvedAlternatives?: ApprovedPartAlternative[];
 }
 
 export interface PortRef {
@@ -197,6 +205,10 @@ function createId(prefix: string) {
 
 export function createAdditionalComponentId() {
   return createId("additional");
+}
+
+export function createApprovedPartAlternativeId() {
+  return createId("alternative");
 }
 
 export function createTwistedPairId() {
@@ -362,6 +374,32 @@ export function normalizeAdditionalComponents(
 export const normalizeConnectorAdditionalComponents =
   normalizeAdditionalComponents;
 
+export function normalizeApprovedPartAlternatives(
+  value: unknown,
+): ApprovedPartAlternative[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const usedIds = new Set<string>();
+  const alternatives = value.slice(0, MAX_ROWS).flatMap((entry) => {
+    const source = recordValue(entry);
+    if (!source) return [];
+    let id = textValue(source.id, "", 240);
+    if (!id || usedIds.has(id)) id = createApprovedPartAlternativeId();
+    usedIds.add(id);
+    const manufacturer = nonEmptyText(source.manufacturer, 500);
+    const mpn = nonEmptyText(source.mpn, 500);
+    const note = nonEmptyText(source.note, MAX_TEXT);
+    return [
+      {
+        id,
+        ...(manufacturer ? { manufacturer } : {}),
+        ...(mpn ? { mpn } : {}),
+        ...(note ? { note } : {}),
+      },
+    ];
+  });
+  return alternatives.length ? alternatives : undefined;
+}
+
 export function componentGroup(kind: ComponentKind): "connector" | "cable" {
   return CONNECTOR_KINDS.includes(kind) ? "connector" : "cable";
 }
@@ -459,6 +497,9 @@ function normalizeComponent(
   const additionalComponents = normalizeAdditionalComponents(
     source.additionalComponents,
   );
+  const approvedAlternatives = normalizeApprovedPartAlternatives(
+    source.approvedAlternatives,
+  );
   return {
     ...base,
     id,
@@ -484,6 +525,7 @@ function normalizeComponent(
     notes: textValue(source.notes, "", MAX_TEXT),
     ...(photo ? { photo } : {}),
     ...(additionalComponents ? { additionalComponents } : {}),
+    ...(approvedAlternatives ? { approvedAlternatives } : {}),
   };
 }
 

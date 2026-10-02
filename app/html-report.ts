@@ -3,6 +3,7 @@ import {
   formatBomQuantity,
   naturalCompare,
   sortBomRows,
+  type BomApprovedAlternative,
   type BomRow,
 } from "./bom.ts";
 import {
@@ -10,6 +11,10 @@ import {
   additionalComponentQuantity,
   placementConductorText,
 } from "./additional-components.ts";
+import {
+  componentApprovedAlternatives,
+  formatApprovedAlternatives,
+} from "./approved-alternatives.ts";
 import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
@@ -61,6 +66,7 @@ export interface ReportConnector {
   };
   pins: ReportPin[];
   additionalComponents: ReportConnectorAdditionalComponent[];
+  approvedAlternatives: BomApprovedAlternative[];
 }
 
 export interface ReportConnectorAdditionalComponent {
@@ -89,6 +95,7 @@ export interface ReportCable {
   notes: string;
   twistedPair: string;
   additionalComponents: ReportCableAdditionalComponent[];
+  approvedAlternatives: BomApprovedAlternative[];
 }
 
 export interface ReportTwistedPair {
@@ -316,6 +323,9 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
             notes: additional.notes ?? "",
           }),
         ),
+        approvedAlternatives: componentApprovedAlternatives(component).map(
+          ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
+        ),
       };
     });
 }
@@ -430,6 +440,9 @@ function buildCables(project: HarnessProject): ReportCable[] {
               placement: placementParts.join("; "),
             };
           },
+        ),
+        approvedAlternatives: componentApprovedAlternatives(component).map(
+          ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
         ),
       };
     });
@@ -774,6 +787,26 @@ function metadataItem(label: string, value: string | number) {
   return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
 }
 
+function approvedAlternativesTable(
+  alternatives: readonly BomApprovedAlternative[],
+) {
+  if (!alternatives.length) return "";
+  const columns: Array<TableColumn<BomApprovedAlternative>> = [
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer ?? "",
+      optional: true,
+    },
+    { heading: "MPN", value: (row) => row.mpn ?? "", optional: true },
+    { heading: "Note", value: (row) => row.note ?? "", optional: true },
+  ];
+  return `<h4>Approved Alternatives</h4>${renderTable(
+    alternatives,
+    columns,
+    "",
+  )}`;
+}
+
 function connectorSection(connector: ReportConnector, index: number) {
   const pinColumns: Array<TableColumn<ReportPin>> = [
     { heading: "Pin", value: (row) => row.pin },
@@ -832,6 +865,7 @@ ${metadataItem("Supplier PN", connector.supplierPn)}
 ${metadataItem("Pin count", connector.pinCount)}
 </dl>${image}</div>
 ${connector.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(connector.notes)}</p>` : ""}
+${approvedAlternativesTable(connector.approvedAlternatives)}
 <h4>Pinout</h4>
 ${renderTable(connector.pins, pinColumns, "No pins are defined.")}
 ${additionalComponents}
@@ -864,6 +898,25 @@ function cableAdditionalComponentsSection(cable: ReportCable) {
   )}</article>`;
 }
 
+function cableApprovedAlternativesSection(cable: ReportCable) {
+  if (!cable.approvedAlternatives.length) return "";
+  return `<article class="cable-components component-alternatives"><h3>${escapeHtml(
+    cable.designator,
+  )} <span>Approved Alternatives</span></h3>${renderTable(
+    cable.approvedAlternatives,
+    [
+      {
+        heading: "Manufacturer",
+        value: (row) => row.manufacturer ?? "",
+        optional: true,
+      },
+      { heading: "MPN", value: (row) => row.mpn ?? "", optional: true },
+      { heading: "Note", value: (row) => row.note ?? "", optional: true },
+    ],
+    "",
+  )}</article>`;
+}
+
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
 *{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
@@ -886,6 +939,11 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     { heading: "From", value: (row) => row.from, optional: true },
     { heading: "To", value: (row) => row.to, optional: true },
     { heading: "Notes", value: (row) => row.notes, optional: true },
+    {
+      heading: "Approved alternatives",
+      value: (row) => formatApprovedAlternatives(row.approvedAlternatives),
+      optional: true,
+    },
   ];
   const terminationColumns: Array<TableColumn<ReportTermination>> = [
     { heading: "Connector", value: (row) => row.connector },
@@ -925,6 +983,11 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
       value: (row) => [...row.designators].sort(naturalCompare).join(", "),
       optional: true,
     },
+    {
+      heading: "Approved alternatives",
+      value: (row) => formatApprovedAlternatives(row.approvedAlternatives),
+      optional: true,
+    },
     { heading: "Notes", value: (row) => row.notes, optional: true },
   ];
   const harnessNotes = model.project.notes ?? "";
@@ -961,7 +1024,7 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
       ? model.connectors.map(connectorSection).join("\n")
       : '<div class="report-section"><p class="empty">No connectors are defined.</p></div>'
   }</section>
-<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
+<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableApprovedAlternativesSection).join("")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
 <section class="report-section" id="twisted-pairs"><h2>Twisted Pairs</h2>${renderTable(model.twistedPairs, twistedPairColumns, "No twisted-pair relationships are defined.")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>
