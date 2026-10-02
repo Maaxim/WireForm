@@ -29,6 +29,8 @@ versioned source links above.
 | React and React DOM | 19.2.8 | MIT | <https://github.com/facebook/react> |
 | Lucide React | 0.468.0 | ISC | <https://github.com/lucide-icons/lucide> |
 | YAML | 2.9.0 | ISC | <https://github.com/eemeli/yaml> |
+| pdfmake | 0.3.11 | MIT | <https://github.com/bpampuch/pdfmake/tree/0.3.11> |
+| Roboto fonts, bundled by pdfmake | bundled with pdfmake 0.3.11 | Apache-2.0 | <https://github.com/googlefonts/roboto> |
 
 Build-only dependencies are recorded in `package-lock.json` and are not loaded
 by the deployed application.
@@ -47,6 +49,8 @@ license texts under [`public/vendor/licenses/`](public/vendor/licenses/):
 - `React-MIT.txt`
 - `Lucide-ISC.txt`
 - `YAML-ISC.txt`
+- `pdfmake-MIT.txt`
+- `Roboto-Apache-2.0.txt`
 
 WireForm's own license is in [`LICENSE`](LICENSE). The checksum-pinned runtime
 inventory is in [`vendor/manifest.json`](vendor/manifest.json).

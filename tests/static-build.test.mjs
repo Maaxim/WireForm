@@ -50,6 +50,7 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Twist pitch/);
   assert.match(script, /Export native BOM CSV/);
   assert.match(script, /Export self-contained HTML harness report/);
+  assert.match(script, /Export native PDF harness report/);
   assert.match(script, /Current topology validation issues/);
   assert.match(script, /blocking issue/);
   assert.match(script, /Harness notes/);

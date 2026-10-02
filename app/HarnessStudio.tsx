@@ -20,6 +20,7 @@ import {
   Download,
   Eye,
   FileCode2,
+  FileDown,
   FilePlus2,
   FileSpreadsheet,
   FileText,
@@ -779,6 +780,7 @@ export function HarnessStudio() {
   >("loading");
   const [dirty, setDirty] = useState(false);
   const [reportExporting, setReportExporting] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [libraries, setLibraries] = useState<LibraryCollection>(() =>
     createLibraryCollection(),
   );
@@ -1890,6 +1892,39 @@ export function HarnessStudio() {
     }
   };
 
+  const downloadPdfReport = async () => {
+    if (validation.errors.length) {
+      setNotice("Resolve validation errors before exporting a PDF report.");
+      return;
+    }
+    setPdfExporting(true);
+    setNotice("Rendering the native PDF harness report…");
+    try {
+      const diagramSvg = await requestReportDiagram();
+      const report = buildHarnessReportModel(project, diagramSvg);
+      const { downloadHarnessPdf, pdfReportFilenameForTitle } = await import(
+        "./pdf-report"
+      );
+      const result = await downloadHarnessPdf(
+        report,
+        pdfReportFilenameForTitle(project.title),
+      );
+      setNotice(
+        result.warnings.length
+          ? `PDF report downloaded. ${result.warnings.join(" ")}`
+          : "Native PDF harness report downloaded.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? `PDF report export failed: ${error.message}`
+          : "The PDF report could not be generated.",
+      );
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   const openProjectFile = async (file: File) => {
     try {
       const parsed = parseProjectFile(await file.text());
@@ -2292,7 +2327,7 @@ export function HarnessStudio() {
           <button
             className="icon-button"
             onClick={() => void downloadHtmlReport()}
-            disabled={reportExporting}
+            disabled={reportExporting || pdfExporting}
             aria-label={reportExporting ? "Generating HTML report" : "Export HTML report"}
             title="Export self-contained HTML harness report"
           >
@@ -2300,6 +2335,19 @@ export function HarnessStudio() {
               <LoaderCircle size={16} className="spin" />
             ) : (
               <FileText size={16} />
+            )}
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => void downloadPdfReport()}
+            disabled={pdfExporting || reportExporting}
+            aria-label={pdfExporting ? "Generating PDF report" : "Export PDF report"}
+            title="Export native PDF harness report"
+          >
+            {pdfExporting ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <FileDown size={16} />
             )}
           </button>
           <button

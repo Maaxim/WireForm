@@ -40,6 +40,8 @@ machine.
 - Native, deterministic BOM CSV export directly from the project model
 - Self-contained HTML harness report export with an inline vector diagram,
   connector pinouts, termination data, BOM, and print styling
+- Native page-oriented PDF engineering report export with vector diagrams,
+  repeated table headers, document headers/footers, and page numbering
 - In-browser preview through vendored WireViz, Pyodide, and Graphviz WebAssembly
 - Static deployment with no account, database, application server, or telemetry
 
@@ -84,10 +86,12 @@ machine.
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
 14. Choose the document icon to export a self-contained HTML engineering report.
-   The report opens offline, includes the vector diagram and embedded connector
-   photos, and is styled for browser printing or **Save as PDF**.
-15. Review the generated WireViz preview or YAML in the lower panel.
-16. Resolve validation errors and choose **Download YAML**.
+   The report opens offline and includes the vector diagram and embedded
+   connector photos.
+15. Choose the PDF icon to export a native page-oriented PDF report. WireForm
+   generates the PDF directly with pdfmake; it does not invoke browser printing.
+16. Review the generated WireViz preview or YAML in the lower panel.
+17. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -136,6 +140,13 @@ The HTML report is generated documentation and works independently after it is
 downloaded; it contains no external styles, scripts, images, or runtime service
 dependencies. Continue editing the corresponding `.wireform.json` project,
 which remains the authoritative editable source.
+
+The native PDF report is also generated entirely in the browser and works
+offline. HTML and PDF consume the same normalized report data and native BOM
+rows, while the PDF uses its own page-oriented engineering layout instead of
+printing or rasterizing HTML. The WireViz diagram is passed to pdfmake as SVG so
+it remains vector-based where supported. The PDF engine and bundled Roboto font
+data are lazy-loaded only when PDF export is requested.
 
 Harness Notes are user-authored documentation for the complete project. They
 are autosaved, included in project JSON, and rendered as escaped plain text in

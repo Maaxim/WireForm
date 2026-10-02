@@ -12,6 +12,8 @@ WireForm includes source, wheels, WebAssembly, or bundled JavaScript from:
 - React and React DOM 19.2.8 — MIT
 - Lucide React 0.468.0 — ISC
 - YAML 2.9.0 — ISC
+- pdfmake 0.3.11 — MIT
+- Roboto fonts bundled by pdfmake 0.3.11 — Apache-2.0
 
 The complete license texts are in the adjacent vendor/licenses/ directory.
 Source links, artifact provenance, and checksums are available in the WireForm
