@@ -627,15 +627,31 @@ select:focus-visible {
 }
 
 .connection-visible,
+.connection-outline,
+.connection-stripe,
 .connection-hit {
   fill: none;
 }
 
+.connection-outline {
+  stroke: #596a72;
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .connection-visible {
-  stroke-width: 3;
+  stroke-width: 3.5;
   stroke-linecap: round;
   pointer-events: none;
   filter: drop-shadow(0 1px 0 white);
+}
+
+.connection-stripe {
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  pointer-events: none;
 }
 
 .connection-hit {
@@ -644,8 +660,18 @@ select:focus-visible {
 }
 
 .connection-line:hover .connection-visible {
+  stroke-width: 4.25;
+  filter: drop-shadow(0 0 2px var(--danger));
+}
+
+.connection-line:hover .connection-stripe {
+  stroke-width: 1.75;
+}
+
+.connection-line:hover .connection-outline {
   stroke: var(--danger);
-  stroke-width: 4;
+  stroke-width: 6;
+  opacity: 0.8;
 }
 
 .harness-node {
@@ -800,6 +826,14 @@ select:focus-visible {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 8px;
   font-weight: 750;
+}
+
+.row-swatch.wire-color {
+  border-color: #6e7d84;
+  color: #17212b;
+  text-shadow:
+    0 0 2px white,
+    0 0 3px white;
 }
 
 .row-label {
@@ -1084,6 +1118,77 @@ select:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.wire-color-editor {
+  margin-bottom: 10px;
+  padding: 9px;
+  background: #f7f9f8;
+  border: 1px solid #dce4e2;
+  border-radius: 6px;
+}
+
+.wire-color-editor .field-row {
+  margin-bottom: 8px;
+}
+
+.wire-color-preview,
+.paired-wire-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wire-color-preview {
+  min-height: 34px;
+  padding: 6px 8px;
+  color: #4d6068;
+  background: white;
+  border: 1px solid #d8dfde;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.wire-color-preview code {
+  color: #263740;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.wire-color-preview small {
+  margin-left: auto;
+  color: #829096;
+  font-size: 8px;
+}
+
+.wire-color-swatch {
+  width: 34px;
+  height: 14px;
+  flex: 0 0 auto;
+  display: inline-block;
+  border: 1px solid #66777e;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75) inset;
+}
+
+.wire-color-swatch.large {
+  width: 56px;
+  height: 18px;
+}
+
+.paired-wire-color {
+  min-height: 31px;
+  padding: 0 8px;
+  color: #34454e;
+  background: white;
+  border: 1px solid #d2dad9;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.paired-wire-color .wire-color-swatch {
+  width: 28px;
+  height: 12px;
 }
 
 .section-note {
@@ -2150,6 +2255,11 @@ select:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.template-thumbnail .wire-color-swatch {
+  width: 36px;
+  height: 16px;
 }
 
 .template-details {

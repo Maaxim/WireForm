@@ -15,7 +15,8 @@ machine.
   splices, and junctions
 - Explicit pin and conductor terminations
 - Per-wire-end contact, seal, strip-length, tooling, and termination notes
-- Wire colors, labels, gauge, length, shields, loops, and BOM fields
+- Solid and bi-color/striped WireViz wire colors, labels, gauge, length,
+  shields, loops, and BOM fields
 - Generic cable/wire additional components with heat-shrink, physical wire-label,
   ferrite, and generic presets
 - Generic connector additional components with Secondary Lock / TPA and generic
@@ -49,7 +50,9 @@ machine.
 
 1. Add a connector, cable, wire, bundle, splice, or junction from the left
    panel.
-2. Select a component and edit its properties in the right inspector.
+2. Select a component and edit its properties in the right inspector. A
+   single-wire inspector provides primary and optional secondary/stripe color
+   selectors, a visual preview, and the resulting WireViz code.
 3. Select one port and then a compatible port to connect them.
 4. Drag on empty canvas space to select several components. Drag any selected
    header to move the group; use <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>C</kbd> and
@@ -105,6 +108,14 @@ connection. WireViz has no per-pin contact assignment, so YAML export groups
 identical contacts and seals into each connector's `additional_components` with
 explicit quantities. Strip length, tooling, and termination notes remain
 WireForm-native manufacturing data and are retained in `.wireform.json` files.
+
+Wire colors use the standard combined WireViz code as their authoritative
+stored and exported representation. A solid blue wire is `BU`; `BUWH` means a
+Blue primary wire with a White secondary stripe, while `WHBU` means a White
+primary wire with a Blue stripe. Order therefore matters. The topology canvas,
+User Library thumbnails, HTML report, and native PDF report show a striped
+swatch plus searchable color name/code text. WireViz YAML import and export
+preserve supported combined codes without adding custom color fields.
 
 Cable accessories use the same generic additional-component model as connector
 accessories. Standard part and quantity fields round-trip through WireViz cable

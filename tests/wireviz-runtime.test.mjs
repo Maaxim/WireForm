@@ -69,7 +69,7 @@ from wireviz.wireviz import parse as wireviz_parse
       cables: {
         W1: {
           wirecount: 2,
-          colors: ["RD", "BK"],
+          colors: ["BUWH", "WHBU"],
           wirelabels: ["POWER", "RETURN"],
           gauge: "22 AWG",
           length: "1 m",
@@ -108,6 +108,8 @@ harness.graph.source
     assert.match(dot, /W1/);
     assert.match(dot, /J2/);
     assert.match(dot, /POWER/);
+    assert.match(dot, /#0066ff:#ffffff:#0066ff/);
+    assert.match(dot, /#ffffff:#0066ff:#ffffff/);
 
     const viz = await instance();
     let svg = viz.renderString(dot, {
@@ -120,6 +122,8 @@ harness.graph.source
     assert.match(svg, />J1</);
     assert.match(svg, />W1</);
     assert.match(svg, /data:image\/png;base64/);
+    assert.match(svg, /#0066ff/);
+    assert.match(svg, /#ffffff/);
 
     pythonDocument.destroy?.();
   },

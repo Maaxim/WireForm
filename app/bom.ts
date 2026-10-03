@@ -18,6 +18,7 @@ import {
   formatApprovedAlternatives,
 } from "./approved-alternatives.ts";
 import { isPhysicalTerminationLink } from "./termination.ts";
+import { getWireColorDisplay } from "./wire-colors.ts";
 
 export interface BomRow {
   category: string;
@@ -125,7 +126,12 @@ function componentDescription(component: HarnessComponent) {
   const gauge = CABLE_KINDS.includes(component.kind)
     ? clean(component.gauge)
     : "";
-  return gauge ? `${name} (${gauge})` : name;
+  const color =
+    component.kind === "wire" && clean(component.colors[0])
+      ? getWireColorDisplay(component.colors[0])
+      : "";
+  const details = [gauge, color].filter(Boolean);
+  return details.length ? `${name} (${details.join(", ")})` : name;
 }
 
 export { parseLengthMeters } from "./additional-components.ts";

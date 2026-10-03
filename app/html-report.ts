@@ -27,6 +27,10 @@ import {
   compactWireTermination,
   isPhysicalTerminationLink,
 } from "./termination.ts";
+import {
+  getWireColorCssBackground,
+  getWireColorDisplay,
+} from "./wire-colors.ts";
 
 export interface ReportProjectMetadata {
   title: string;
@@ -90,6 +94,7 @@ export interface ReportCable {
   length: string;
   conductorCount: number;
   gauge: string;
+  color: string;
   from: string;
   to: string;
   notes: string;
@@ -101,7 +106,9 @@ export interface ReportCable {
 export interface ReportTwistedPair {
   designator: string;
   wireA: string;
+  wireAColor: string;
   wireB: string;
+  wireBColor: string;
   pitch: string;
   direction: string;
   notes: string;
@@ -379,6 +386,7 @@ function buildCables(project: HarnessProject): ReportCable[] {
         length: component.length,
         conductorCount: component.wireCount,
         gauge: component.gauge,
+        color: component.kind === "wire" ? clean(component.colors[0]) : "",
         from,
         to,
         notes: component.notes,
@@ -454,15 +462,16 @@ function buildTwistedPairs(project: HarnessProject): ReportTwistedPair[] {
     .map((pair) => {
       const member = (index: number) => {
         const id = pair.members[index];
-        return (
-          project.components.find((component) => component.id === id)
-            ?.designator ?? id ?? "Missing wire"
-        );
+        return project.components.find((component) => component.id === id);
       };
+      const wireA = member(0);
+      const wireB = member(1);
       return {
         designator: pair.designator,
-        wireA: member(0),
-        wireB: member(1),
+        wireA: wireA?.designator ?? pair.members[0] ?? "Missing wire",
+        wireAColor: wireA?.colors[0] ?? "",
+        wireB: wireB?.designator ?? pair.members[1] ?? "Missing wire",
+        wireBColor: wireB?.colors[0] ?? "",
         pitch:
           pair.twistPitchMm === undefined ? "" : `${pair.twistPitchMm} mm`,
         direction:
@@ -748,8 +757,18 @@ export function buildHarnessReportModel(
 interface TableColumn<Row> {
   heading: string;
   value: (row: Row, index: number) => string | number;
+  render?: (row: Row, index: number) => string;
   optional?: boolean;
   numeric?: boolean;
+}
+
+export function renderWireColorHtml(code: string) {
+  if (!code) return "";
+  return `<span class="wire-color-value"><span class="wire-color-swatch" style="background:${escapeHtml(
+    getWireColorCssBackground(code),
+  )}" aria-hidden="true"></span><span>${escapeHtml(
+    getWireColorDisplay(code),
+  )}</span></span>`;
 }
 
 function renderTable<Row>(
@@ -774,7 +793,9 @@ function renderTable<Row>(
           .map((column) => {
             const value = column.value(row, index);
             return `<td${column.numeric ? ' class="number"' : ""}>${
-              value === "" ? '<span class="muted">—</span>' : escapeHtml(value)
+              value === ""
+                ? '<span class="muted">—</span>'
+                : column.render?.(row, index) ?? escapeHtml(value)
             }</td>`;
           })
           .join("")}</tr>`,
@@ -813,7 +834,12 @@ function connectorSection(connector: ReportConnector, index: number) {
     { heading: "Signal", value: (row) => row.signal, optional: true },
     { heading: "Cable / wire", value: (row) => row.cable, optional: true },
     { heading: "Conductor", value: (row) => row.conductor, optional: true },
-    { heading: "Color", value: (row) => row.color, optional: true },
+    {
+      heading: "Color",
+      value: (row) => row.color,
+      render: (row) => renderWireColorHtml(row.color),
+      optional: true,
+    },
     { heading: "Wire size", value: (row) => row.gauge, optional: true },
     {
       heading: "Contact manufacturer",
@@ -919,7 +945,7 @@ function cableApprovedAlternativesSection(cable: ReportCable) {
 
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
-*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
+*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}}
@@ -935,6 +961,12 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     { heading: "Length", value: (row) => row.length, optional: true },
     { heading: "Conductors", value: (row) => row.conductorCount, numeric: true },
     { heading: "Wire size", value: (row) => row.gauge, optional: true },
+    {
+      heading: "Color",
+      value: (row) => row.color,
+      render: (row) => renderWireColorHtml(row.color),
+      optional: true,
+    },
     { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
     { heading: "From", value: (row) => row.from, optional: true },
     { heading: "To", value: (row) => row.to, optional: true },
@@ -965,7 +997,19 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
   const twistedPairColumns: Array<TableColumn<ReportTwistedPair>> = [
     { heading: "Pair", value: (row) => row.designator },
     { heading: "Wire A", value: (row) => row.wireA },
+    {
+      heading: "Wire A color",
+      value: (row) => row.wireAColor,
+      render: (row) => renderWireColorHtml(row.wireAColor),
+      optional: true,
+    },
     { heading: "Wire B", value: (row) => row.wireB },
+    {
+      heading: "Wire B color",
+      value: (row) => row.wireBColor,
+      render: (row) => renderWireColorHtml(row.wireBColor),
+      optional: true,
+    },
     { heading: "Pitch", value: (row) => row.pitch, optional: true },
     { heading: "Direction", value: (row) => row.direction },
     { heading: "Notes", value: (row) => row.notes, optional: true },

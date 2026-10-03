@@ -193,6 +193,7 @@ test("multiconductor cable appears once with modeled length and endpoints", () =
       length: "2.5 m",
       conductorCount: 2,
       gauge: "22 AWG",
+      color: "",
       from: "X1:1, X1:2",
       to: "X2:1, X2:2",
       notes: "Route away from motor",

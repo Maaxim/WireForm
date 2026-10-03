@@ -24,10 +24,15 @@ import {
   type ReportTwistedPair,
 } from "./html-report.ts";
 import { PDF_COLORS, PDF_STYLES, PDF_TABLE_LAYOUT } from "./pdf-styles.ts";
+import {
+  getWireColorDisplay,
+  parseWireColor,
+} from "./wire-colors.ts";
 
 interface PdfColumn<Row> {
   heading: string;
   value: (row: Row, index: number) => string | number;
+  cell?: (row: Row, index: number) => Content;
   width?: Size;
   optional?: boolean;
   numeric?: boolean;
@@ -72,12 +77,14 @@ function table<Row>(
     ...rows.map((row, index) =>
       visible.map((column) => {
         const value = column.value(row, index);
-        return {
-          text: text(value),
-          style: "tableCell",
-          alignment: column.numeric ? "right" : "left",
-          ...(value === "" ? { color: PDF_COLORS.muted } : {}),
-        } as TableCell;
+        return (value !== "" && column.cell
+          ? column.cell(row, index)
+          : {
+              text: text(value),
+              style: "tableCell",
+              alignment: column.numeric ? "right" : "left",
+              ...(value === "" ? { color: PDF_COLORS.muted } : {}),
+            }) as TableCell;
       }),
     ),
   ];
@@ -141,12 +148,52 @@ function alternativesTable(alternatives: readonly BomApprovedAlternative[]): Con
   ];
 }
 
+export function pdfWireColorCell(code: string): Content {
+  const parsed = parseWireColor(code);
+  const primary = parsed.primary?.hex ?? "#70808c";
+  const secondary = parsed.secondary?.hex;
+  return {
+    columns: [
+      {
+        width: 28,
+        canvas: [
+          { type: "rect", x: 0, y: 1, w: 25, h: 9, color: primary },
+          ...(secondary
+            ? [{ type: "rect" as const, x: 0, y: 4, w: 25, h: 3, color: secondary }]
+            : []),
+          {
+            type: "rect",
+            x: 0,
+            y: 1,
+            w: 25,
+            h: 9,
+            lineColor: "#66777e",
+            lineWidth: 0.6,
+          },
+        ],
+      },
+      {
+        width: "*",
+        text: getWireColorDisplay(code),
+        style: "tableCell",
+      },
+    ],
+    columnGap: 3,
+  };
+}
+
 const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
   { heading: "Pin", value: (row) => row.pin, width: 24 },
   { heading: "Signal", value: (row) => row.signal, optional: true },
   { heading: "Wire", value: (row) => row.cable, optional: true },
   { heading: "Cond.", value: (row) => row.conductor, optional: true },
-  { heading: "Color", value: (row) => row.color, width: 34, optional: true },
+  {
+    heading: "Color",
+    value: (row) => row.color,
+    cell: (row) => pdfWireColorCell(row.color),
+    width: 105,
+    optional: true,
+  },
   { heading: "Size", value: (row) => row.gauge, width: 48, optional: true },
   { heading: "Contact mfr.", value: (row) => row.contactManufacturer, optional: true },
   { heading: "Contact MPN", value: (row) => row.contactMpn, optional: true },
@@ -244,6 +291,13 @@ const CABLE_COLUMNS: Array<PdfColumn<ReportCable>> = [
   { heading: "Length", value: (row) => row.length, width: 46, optional: true },
   { heading: "Cond.", value: (row) => row.conductorCount, width: 28, numeric: true },
   { heading: "Size", value: (row) => row.gauge, width: 46, optional: true },
+  {
+    heading: "Color",
+    value: (row) => row.color,
+    cell: (row) => pdfWireColorCell(row.color),
+    width: 105,
+    optional: true,
+  },
   { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
   { heading: "From", value: (row) => row.from, optional: true },
   { heading: "To", value: (row) => row.to, optional: true },
@@ -267,7 +321,21 @@ function cableDetails(cable: ReportCable): Content[] {
 const TWISTED_PAIR_COLUMNS: Array<PdfColumn<ReportTwistedPair>> = [
   { heading: "Pair", value: (row) => row.designator, width: 48 },
   { heading: "Wire A", value: (row) => row.wireA },
+  {
+    heading: "Wire A color",
+    value: (row) => row.wireAColor,
+    cell: (row) => pdfWireColorCell(row.wireAColor),
+    width: 105,
+    optional: true,
+  },
   { heading: "Wire B", value: (row) => row.wireB },
+  {
+    heading: "Wire B color",
+    value: (row) => row.wireBColor,
+    cell: (row) => pdfWireColorCell(row.wireBColor),
+    width: 105,
+    optional: true,
+  },
   { heading: "Pitch", value: (row) => row.pitch, width: 55, optional: true },
   { heading: "Direction", value: (row) => row.direction, width: 62 },
   { heading: "Notes", value: (row) => row.notes, optional: true },

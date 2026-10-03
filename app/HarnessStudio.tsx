@@ -140,6 +140,16 @@ import {
   validateTwistedPairs,
   withoutTwistedPairsForMembers,
 } from "./twisted-pair";
+import {
+  WIRE_COLOR_OPTIONS,
+  formatWireColor,
+  getWireColorCssBackground,
+  getWireColorDisplay,
+  getWireColorHex,
+  getWireColorStripeHex,
+  parseWireColor,
+  validateWireColors,
+} from "./wire-colors";
 
 interface ValidationResult {
   errors: string[];
@@ -193,21 +203,6 @@ const ROW_HEIGHT = 32;
 const NODE_PHOTO_HEIGHT = 118;
 const CANVAS_WIDTH = 1480;
 const CANVAS_HEIGHT = 820;
-
-const COLOR_OPTIONS = [
-  { code: "BK", name: "Black", hex: "#25292d" },
-  { code: "WH", name: "White", hex: "#f5f5f1" },
-  { code: "GY", name: "Gray", hex: "#8c969d" },
-  { code: "RD", name: "Red", hex: "#d44c43" },
-  { code: "OG", name: "Orange", hex: "#e47d35" },
-  { code: "YE", name: "Yellow", hex: "#e4b72d" },
-  { code: "GN", name: "Green", hex: "#3c9669" },
-  { code: "BU", name: "Blue", hex: "#3f74b8" },
-  { code: "VT", name: "Violet", hex: "#855b9d" },
-  { code: "BN", name: "Brown", hex: "#8a6047" },
-  { code: "WHGN", name: "White / Green", hex: "#5b9d78" },
-  { code: "WHBU", name: "White / Blue", hex: "#6588b7" },
-];
 
 const KIND_META: Record<
   ComponentKind,
@@ -375,9 +370,22 @@ function listForCount(values: string[], count: number, fallback: string) {
   return Array.from({ length: count }, (_, index) => values[index] ?? fallback);
 }
 
-function wireColor(code: string) {
+function WireColorSwatch({
+  code,
+  className = "",
+}: {
+  code: string;
+  className?: string;
+}) {
+  const parsed = parseWireColor(code);
   return (
-    COLOR_OPTIONS.find((option) => option.code === code)?.hex ?? "#70808c"
+    <span
+      className={`wire-color-swatch ${parsed.secondary ? "bicolor" : "solid"} ${className}`.trim()}
+      style={{ background: getWireColorCssBackground(code) }}
+      role="img"
+      aria-label={getWireColorDisplay(code)}
+      title={getWireColorDisplay(code)}
+    />
   );
 }
 
@@ -659,6 +667,7 @@ function validateProject(project: HarnessProject): ValidationResult {
   const twistedPairIssues = validateTwistedPairs(project);
   errors.push(...twistedPairIssues.errors);
   warnings.push(...twistedPairIssues.warnings);
+  warnings.push(...validateWireColors(project));
 
   for (const link of project.links) {
     for (const endpoint of [link.from, link.to]) {
@@ -2610,22 +2619,27 @@ export function HarnessStudio() {
                         ? link.from
                         : link.to
                       : undefined;
-                    const color =
+                    const wireCode =
                       cableNode && cablePort?.portId.startsWith("wire:")
-                        ? wireColor(
-                            cableNode.colors[
-                              parsePortNumber(cablePort.portId) - 1
-                            ] ?? "BK",
-                          )
-                        : "#667a86";
+                        ? (cableNode.colors[
+                            parsePortNumber(cablePort.portId) - 1
+                          ] ?? "BK")
+                        : undefined;
+                    const color = wireCode
+                      ? getWireColorHex(wireCode)
+                      : "#667a86";
+                    const stripeColor = wireCode
+                      ? getWireColorStripeHex(wireCode)
+                      : undefined;
+                    const path = `M ${from.x} ${from.y} C ${
+                      from.x + bend * direction
+                    } ${from.y}, ${to.x - bend * direction} ${to.y}, ${
+                      to.x
+                    } ${to.y}`;
                     return (
                       <g key={link.id} className="connection-line">
                         <path
-                          d={`M ${from.x} ${from.y} C ${
-                            from.x + bend * direction
-                          } ${from.y}, ${to.x - bend * direction} ${to.y}, ${
-                            to.x
-                          } ${to.y}`}
+                          d={path}
                           className="connection-hit"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -2633,14 +2647,21 @@ export function HarnessStudio() {
                           }}
                         />
                         <path
-                          d={`M ${from.x} ${from.y} C ${
-                            from.x + bend * direction
-                          } ${from.y}, ${to.x - bend * direction} ${to.y}, ${
-                            to.x
-                          } ${to.y}`}
+                          d={path}
+                          className="connection-outline"
+                        />
+                        <path
+                          d={path}
                           stroke={color}
                           className="connection-visible"
                         />
+                        {stripeColor && (
+                          <path
+                            d={path}
+                            stroke={stripeColor}
+                            className="connection-stripe"
+                          />
+                        )}
                       </g>
                     );
                   })}
@@ -2753,9 +2774,9 @@ export function HarnessStudio() {
                             : CONNECTOR_KINDS.includes(node.kind)
                               ? node.pinLabels[index] || `Pin ${number}`
                               : node.wireLabels[index] || `Conductor ${number}`;
-                          const color =
+                          const colorCode =
                             !isShield && CABLE_KINDS.includes(node.kind)
-                              ? wireColor(node.colors[index] ?? "BK")
+                              ? (node.colors[index] ?? "BK")
                               : undefined;
                            const terminationLink = CONNECTOR_KINDS.includes(
                              node.kind,
@@ -2803,16 +2824,18 @@ export function HarnessStudio() {
                                 aria-label={`Connect ${node.designator} ${label} left`}
                               />
                               <span
-                                className="row-swatch"
+                                className={`row-swatch ${colorCode ? "wire-color" : ""}`}
                                 style={
-                                  color
+                                  colorCode
                                     ? {
-                                        background: color,
-                                        borderColor:
-                                          color === "#f5f5f1"
-                                            ? "#c4cbc9"
-                                            : color,
+                                        background:
+                                          getWireColorCssBackground(colorCode),
                                       }
+                                    : undefined
+                                }
+                                title={
+                                  colorCode
+                                    ? getWireColorDisplay(colorCode)
                                     : undefined
                                 }
                               >
@@ -3097,12 +3120,16 @@ export function HarnessStudio() {
                         );
                         return (
                           <Field key={`${selectedTwistedPair.id}-${index}`} label={`Wire ${index === 0 ? "A" : "B"}`}>
-                            <input
-                              value={member
-                                ? `${member.designator} / ${member.colors[0] || "—"}`
-                                : "Missing wire"}
-                              readOnly
-                            />
+                            <div className="paired-wire-color">
+                              {member && (
+                                <WireColorSwatch code={member.colors[0] || "BK"} />
+                              )}
+                              <span>
+                                {member
+                                  ? `${member.designator} · ${getWireColorDisplay(member.colors[0] || "BK")}`
+                                  : "Missing wire"}
+                              </span>
+                            </div>
                           </Field>
                         );
                       })}
@@ -3416,31 +3443,119 @@ export function HarnessStudio() {
                     </Field>
                   ) : (
                     <>
-                      <Field label="Wire colors" hint="IEC codes, comma separated">
-                        <input
-                          value={selected.colors.join(", ")}
-                          onChange={(event) =>
-                            updateSelected({
-                              colors: listForCount(
-                                csvValues(event.target.value).map((value) =>
-                                  value.toUpperCase(),
-                                ),
-                                selected.wireCount,
-                                "BK",
-                              ),
-                            })
-                          }
-                        />
-                      </Field>
-                      <div className="color-strip">
-                        {selected.colors.slice(0, 12).map((color, index) => (
-                          <span
-                            key={`${selected.id}-${index}`}
-                            title={`Conductor ${index + 1}: ${color}`}
-                            style={{ background: wireColor(color) }}
-                          />
-                        ))}
-                      </div>
+                      {selected.kind === "wire" ? (
+                        (() => {
+                          const code = selected.colors[0] || "BK";
+                          const parsed = parseWireColor(code);
+                          const primaryValue = parsed.primary?.code ?? "__unknown";
+                          const secondaryValue = parsed.secondary
+                            ? parsed.secondary.code
+                            : parsed.supported
+                              ? ""
+                              : "__unknown";
+                          return (
+                            <div className="wire-color-editor">
+                              <div className="field-row">
+                                <Field label="Primary color">
+                                  <div className="select-wrap">
+                                    <select
+                                      aria-label="Primary wire color"
+                                      value={primaryValue}
+                                      onChange={(event) =>
+                                        updateSelected({
+                                          colors: [
+                                            formatWireColor(
+                                              event.target.value,
+                                              parsed.secondary?.code,
+                                            ),
+                                          ],
+                                        })
+                                      }
+                                    >
+                                      {!parsed.primary && (
+                                        <option value="__unknown" disabled>
+                                          Unsupported ({parsed.code || "empty"})
+                                        </option>
+                                      )}
+                                      {WIRE_COLOR_OPTIONS.map((option) => (
+                                        <option key={option.code} value={option.code}>
+                                          {option.name} ({option.code})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown size={13} />
+                                  </div>
+                                </Field>
+                                <Field label="Secondary color" hint="optional stripe">
+                                  <div className="select-wrap">
+                                    <select
+                                      aria-label="Secondary wire color"
+                                      value={secondaryValue}
+                                      disabled={!parsed.primary}
+                                      onChange={(event) =>
+                                        updateSelected({
+                                          colors: [
+                                            formatWireColor(
+                                              parsed.primary?.code ?? "BK",
+                                              event.target.value || undefined,
+                                            ),
+                                          ],
+                                        })
+                                      }
+                                    >
+                                      <option value="">None</option>
+                                      {!parsed.supported && parsed.secondaryCode && (
+                                        <option value="__unknown" disabled>
+                                          Unsupported ({parsed.secondaryCode})
+                                        </option>
+                                      )}
+                                      {WIRE_COLOR_OPTIONS.map((option) => (
+                                        <option key={option.code} value={option.code}>
+                                          {option.name} ({option.code})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown size={13} />
+                                  </div>
+                                </Field>
+                              </div>
+                              <div className="wire-color-preview">
+                                <WireColorSwatch code={code} className="large" />
+                                <span>{getWireColorDisplay(code)}</span>
+                                <small>WireViz code</small>
+                                <code>{code}</code>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <>
+                          <Field label="Wire colors" hint="WireViz codes, comma separated">
+                            <input
+                              value={selected.colors.join(", ")}
+                              onChange={(event) =>
+                                updateSelected({
+                                  colors: listForCount(
+                                    csvValues(event.target.value).map((value) =>
+                                      value.toUpperCase(),
+                                    ),
+                                    selected.wireCount,
+                                    "BK",
+                                  ),
+                                })
+                              }
+                            />
+                          </Field>
+                          <div className="color-strip">
+                            {selected.colors.slice(0, 12).map((color, index) => (
+                              <WireColorSwatch
+                                key={`${selected.id}-${index}`}
+                                code={color}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      )}
                       <div className="field-row">
                         <Field label="Gauge">
                           <input
@@ -3915,6 +4030,11 @@ export function HarnessStudio() {
                         <img
                           src={template.component.photo.dataUrl}
                           alt={template.component.photo.alt}
+                        />
+                      ) : template.component.kind === "wire" ? (
+                        <WireColorSwatch
+                          code={template.component.colors[0] || "BK"}
+                          className="large"
                         />
                       ) : (
                         (() => {
