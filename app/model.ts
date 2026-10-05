@@ -20,6 +20,19 @@ export interface ConnectorPhoto {
   alt: string;
 }
 
+export type HarnessImageMimeType = "image/jpeg" | "image/png";
+
+export interface HarnessImage {
+  id: string;
+  dataUrl: string;
+  mimeType: HarnessImageMimeType;
+  originalFilename?: string;
+  title?: string;
+  caption?: string;
+  width: number;
+  height: number;
+}
+
 export interface TerminationPart {
   type?: string;
   subtype?: string;
@@ -127,6 +140,7 @@ export interface HarnessProject {
   revision: string;
   company: string;
   notes: string;
+  harnessImages: HarnessImage[];
   components: HarnessComponent[];
   links: TopologyLink[];
   twistedPairs: TwistedPair[];
@@ -160,6 +174,9 @@ const MAX_LINKS = 4_000;
 const MAX_ROWS = 64;
 const MAX_TEXT = 4_000;
 const MAX_PHOTO_DATA_LENGTH = 4_000_000;
+const MAX_HARNESS_IMAGES = 40;
+const MAX_HARNESS_IMAGE_DATA_LENGTH = 16_000_000;
+const MAX_HARNESS_IMAGE_TOTAL_DATA_LENGTH = 60_000_000;
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -215,6 +232,31 @@ export function createTwistedPairId() {
   return createId("twisted-pair");
 }
 
+export function createHarnessImageId() {
+  return createId("harness-image");
+}
+
+export function harnessImageMimeTypeFromDataUrl(
+  value: string,
+): HarnessImageMimeType | undefined {
+  const match = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=\s]+)$/.exec(
+    value,
+  );
+  if (!match) return undefined;
+  const payload = match[2].replace(/\s/g, "");
+  if (match[1] === "image/png" && !payload.startsWith("iVBORw0KGgo")) {
+    return undefined;
+  }
+  if (match[1] === "image/jpeg" && !payload.startsWith("/9j/")) {
+    return undefined;
+  }
+  return match[1] as HarnessImageMimeType;
+}
+
+export function isHarnessImageDataUrl(value: string) {
+  return Boolean(harnessImageMimeTypeFromDataUrl(value));
+}
+
 function normalizedPhoto(value: unknown): ConnectorPhoto | undefined {
   const photo = recordValue(value);
   if (!photo) return undefined;
@@ -237,6 +279,44 @@ function normalizedPhoto(value: unknown): ConnectorPhoto | undefined {
     height: Math.round(numberValue(photo.height, 240, 1, 4_096)),
     alt: textValue(photo.alt, "Connector photo", 500),
   };
+}
+
+function normalizeHarnessImages(value: unknown): HarnessImage[] {
+  if (!Array.isArray(value)) return [];
+  const usedIds = new Set<string>();
+  let totalDataLength = 0;
+  return value.slice(0, MAX_HARNESS_IMAGES).flatMap((entry) => {
+    const source = recordValue(entry);
+    if (!source || typeof source.dataUrl !== "string") return [];
+    const dataUrl = source.dataUrl;
+    const mimeType = harnessImageMimeTypeFromDataUrl(dataUrl);
+    if (
+      !mimeType ||
+      dataUrl.length > MAX_HARNESS_IMAGE_DATA_LENGTH ||
+      totalDataLength + dataUrl.length > MAX_HARNESS_IMAGE_TOTAL_DATA_LENGTH
+    ) {
+      return [];
+    }
+    totalDataLength += dataUrl.length;
+    let id = textValue(source.id, "", 240);
+    if (!id || usedIds.has(id)) id = createHarnessImageId();
+    usedIds.add(id);
+    const originalFilename = nonEmptyText(source.originalFilename, 240);
+    const title = nonEmptyText(source.title, 500);
+    const caption = nonEmptyText(source.caption, MAX_TEXT);
+    return [
+      {
+        id,
+        dataUrl,
+        mimeType,
+        ...(originalFilename ? { originalFilename } : {}),
+        ...(title ? { title } : {}),
+        ...(caption ? { caption } : {}),
+        width: Math.round(numberValue(source.width, 1, 1, 8_192)),
+        height: Math.round(numberValue(source.height, 1, 1, 8_192)),
+      },
+    ];
+  });
 }
 
 function nonEmptyText(value: unknown, max = MAX_TEXT) {
@@ -467,6 +547,7 @@ export function createEmptyProject(title = "Untitled Harness"): HarnessProject {
     revision: "A",
     company: "",
     notes: "",
+    harnessImages: [],
     components: [],
     links: [],
     twistedPairs: [],
@@ -641,6 +722,7 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     revision: textValue(rawProject.revision, "", 160),
     company: textValue(rawProject.company, "", 500),
     notes: textValue(rawProject.notes, "", MAX_TEXT),
+    harnessImages: normalizeHarnessImages(rawProject.harnessImages),
     components,
     links,
     twistedPairs,
@@ -654,8 +736,8 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
 }
 
 export function parseProjectFile(text: string): ParsedProjectFile {
-  if (text.length > 25_000_000) {
-    throw new Error("Project files must be smaller than 25 MB.");
+  if (text.length > 90_000_000) {
+    throw new Error("Project files must be smaller than 90 MB.");
   }
   let value: unknown;
   try {

@@ -7,6 +7,8 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Box,
   Cable,
   Check,
@@ -28,6 +30,7 @@ import {
   FolderOpen,
   GitBranch,
   ImagePlus,
+  Images,
   Library,
   Link2,
   LoaderCircle,
@@ -73,7 +76,12 @@ import {
   htmlReportFilenameForTitle,
   renderHarnessReportHtml,
 } from "./html-report";
-import { prepareConnectorPhoto } from "./images";
+import {
+  approximateDataUrlBytes,
+  prepareConnectorPhoto,
+  prepareHarnessImage,
+  validateHarnessImages,
+} from "./images";
 import {
   componentToTemplate,
   createLibrary,
@@ -105,6 +113,7 @@ import {
   type ApprovedPartAlternative,
   type ComponentKind,
   type HarnessComponent,
+  type HarnessImage,
   type HarnessProject,
   type PortRef,
   type TerminationPart,
@@ -360,6 +369,7 @@ function createStarterProject(): HarnessProject {
     revision: "A",
     company: "",
     notes: "",
+    harnessImages: [],
     components,
     links,
     twistedPairs: [],
@@ -394,6 +404,12 @@ function naturalSort(a: string, b: string) {
     numeric: true,
     sensitivity: "base",
   });
+}
+
+function storageSizeLabel(bytes: number) {
+  if (bytes < 1_000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} kB`;
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
 function getNodeRows(node: HarnessComponent) {
@@ -667,6 +683,9 @@ function validateProject(project: HarnessProject): ValidationResult {
   const twistedPairIssues = validateTwistedPairs(project);
   errors.push(...twistedPairIssues.errors);
   warnings.push(...twistedPairIssues.warnings);
+  const harnessImageIssues = validateHarnessImages(project);
+  errors.push(...harnessImageIssues.errors);
+  warnings.push(...harnessImageIssues.warnings);
   warnings.push(...validateWireColors(project));
 
   for (const link of project.links) {
@@ -795,6 +814,7 @@ export function HarnessStudio() {
   );
   const [librariesReady, setLibrariesReady] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [harnessView, setHarnessView] = useState<"notes" | "images">("notes");
   const [newLibraryName, setNewLibraryName] = useState("");
   const [duplicateMode, setDuplicateMode] =
     useState<DuplicateMode>("keep");
@@ -812,6 +832,9 @@ export function HarnessStudio() {
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const yamlInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const harnessImagesInputRef = useRef<HTMLInputElement | null>(null);
+  const harnessImageReplaceInputRef = useRef<HTMLInputElement | null>(null);
+  const harnessImageReplaceIdRef = useRef<string | null>(null);
   const clipboardRef = useRef<ComponentClipboard | null>(null);
   const pasteSequenceRef = useRef(0);
   const dragDidMoveRef = useRef(false);
@@ -858,6 +881,14 @@ export function HarnessStudio() {
           : [],
       ),
     [project.components],
+  );
+  const harnessImageStorageBytes = useMemo(
+    () =>
+      project.harnessImages.reduce(
+        (total, image) => total + approximateDataUrlBytes(image.dataUrl),
+        0,
+      ),
+    [project.harnessImages],
   );
 
   const commitProject = useCallback(
@@ -1019,6 +1050,7 @@ export function HarnessStudio() {
       const firstId = next.components[0]?.id ?? null;
       setSelectedId(firstId);
       setSelectedIds(firstId ? [firstId] : []);
+      setHarnessView("notes");
       setPendingPort(null);
       setDirty(markDirty);
       setNotice(message);
@@ -2229,6 +2261,102 @@ export function HarnessStudio() {
     }
   };
 
+  const uploadHarnessImages = async (files: FileList | File[]) => {
+    const successful: HarnessImage[] = [];
+    const failures: string[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        successful.push(await prepareHarnessImage(file));
+      } catch (error) {
+        failures.push(
+          `${file.name}: ${
+            error instanceof Error ? error.message : "The image could not be added."
+          }`,
+        );
+      }
+    }
+    if (successful.length) {
+      updateProject(
+        (draft) => {
+          draft.harnessImages.push(...successful);
+        },
+        `${successful.length} harness image${successful.length === 1 ? "" : "s"} added.${
+          failures.length ? ` ${failures.join(" ")}` : ""
+        }`,
+      );
+    } else if (failures.length) {
+      setNotice(failures.join(" "));
+    }
+    if (harnessImagesInputRef.current) harnessImagesInputRef.current.value = "";
+  };
+
+  const replaceHarnessImage = async (imageId: string, file: File) => {
+    try {
+      const replacement = await prepareHarnessImage(file);
+      updateProject(
+        (draft) => {
+          const index = draft.harnessImages.findIndex((image) => image.id === imageId);
+          if (index < 0) return;
+          const current = draft.harnessImages[index];
+          draft.harnessImages[index] = {
+            ...current,
+            dataUrl: replacement.dataUrl,
+            mimeType: replacement.mimeType,
+            originalFilename: replacement.originalFilename,
+            width: replacement.width,
+            height: replacement.height,
+          };
+        },
+        "Harness image replaced.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "The image could not be replaced.",
+      );
+    } finally {
+      harnessImageReplaceIdRef.current = null;
+      if (harnessImageReplaceInputRef.current) {
+        harnessImageReplaceInputRef.current.value = "";
+      }
+    }
+  };
+
+  const updateHarnessImage = (
+    imageId: string,
+    values: Partial<Pick<HarnessImage, "title" | "caption">>,
+  ) => {
+    updateProject((draft) => {
+      const image = draft.harnessImages.find((candidate) => candidate.id === imageId);
+      if (image) Object.assign(image, values);
+    });
+  };
+
+  const removeHarnessImage = (imageId: string) => {
+    updateProject(
+      (draft) => {
+        draft.harnessImages = draft.harnessImages.filter(
+          (image) => image.id !== imageId,
+        );
+      },
+      "Harness image removed. Undo is available.",
+    );
+  };
+
+  const moveHarnessImage = (imageId: string, direction: -1 | 1) => {
+    updateProject(
+      (draft) => {
+        const index = draft.harnessImages.findIndex((image) => image.id === imageId);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= draft.harnessImages.length) {
+          return;
+        }
+        const [image] = draft.harnessImages.splice(index, 1);
+        draft.harnessImages.splice(nextIndex, 0, image);
+      },
+      "Harness image order updated.",
+    );
+  };
+
   const newProject = () => {
     if (
       dirty &&
@@ -2467,14 +2595,35 @@ export function HarnessStudio() {
           </p>
 
           <button
-            className={`harness-notes-button ${!selected ? "active" : ""}`}
-            onClick={() => selectOnly(null)}
+            className={`harness-notes-button ${
+              !selected && harnessView === "notes" ? "active" : ""
+            }`}
+            onClick={() => {
+              setHarnessView("notes");
+              selectOnly(null);
+            }}
             data-testid="open-harness-notes"
           >
             <FileText size={17} />
             <span>
               <strong>Harness notes</strong>
               <small>Project-wide documentation</small>
+            </span>
+          </button>
+          <button
+            className={`harness-notes-button ${
+              !selected && harnessView === "images" ? "active" : ""
+            }`}
+            onClick={() => {
+              setHarnessView("images");
+              selectOnly(null);
+            }}
+            data-testid="open-harness-images"
+          >
+            <Images size={17} />
+            <span>
+              <strong>Harness images</strong>
+              <small>Project documentation photos</small>
             </span>
           </button>
 
@@ -2988,63 +3137,209 @@ export function HarnessStudio() {
           <div className="inspector-scroll">
             {!selected ? (
               <div className="property-section">
-                <h3>Harness details</h3>
-                <Field label="Title">
-                  <input
-                    value={project.title}
-                    onChange={(event) =>
-                      updateProject((draft) => {
-                        draft.title = event.target.value;
-                      })
-                    }
-                  />
-                </Field>
-                <div className="field-row">
-                  <Field label="Revision">
+                {harnessView === "images" ? (
+                  <div
+                    className="harness-images-editor"
+                    data-testid="harness-images-editor"
+                  >
+                    <div className="harness-images-heading">
+                      <div>
+                        <h3>Harness Images</h3>
+                        <p>Project-level assembly and installation documentation.</p>
+                      </div>
+                      <span>{storageSizeLabel(harnessImageStorageBytes)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="photo-upload harness-images-upload"
+                      onClick={() => harnessImagesInputRef.current?.click()}
+                    >
+                      <ImagePlus size={20} />
+                      <strong>Add images</strong>
+                      <span>JPEG or PNG · multiple files supported</span>
+                    </button>
                     <input
-                      value={project.revision}
-                      onChange={(event) =>
-                        updateProject((draft) => {
-                          draft.revision = event.target.value;
-                        })
-                      }
+                      ref={harnessImagesInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      multiple
+                      hidden
+                      onChange={(event) => {
+                        const files = event.target.files;
+                        if (files?.length) void uploadHarnessImages(files);
+                      }}
                     />
-                  </Field>
-                  <Field label="Company">
                     <input
-                      value={project.company}
-                      onChange={(event) =>
-                        updateProject((draft) => {
-                          draft.company = event.target.value;
-                        })
-                      }
+                      ref={harnessImageReplaceInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      hidden
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        const imageId = harnessImageReplaceIdRef.current;
+                        if (file && imageId) void replaceHarnessImage(imageId, file);
+                      }}
                     />
-                  </Field>
-                </div>
-                <div className="harness-notes-editor">
-                  <Field label="Harness notes" hint="Plain text">
-                    <textarea
-                      rows={16}
-                      value={project.notes}
-                      onChange={(event) =>
-                        updateProject((draft) => {
-                          draft.notes = event.target.value;
-                        })
-                      }
-                      placeholder={
-                        "Assembly notes\n\n- Route wires away from power rails.\n\nRevision notes"
-                      }
-                    />
-                  </Field>
-                  <p>
-                    Saved with this project and included in the HTML report.
-                    Validation issues remain separate editor checks.
-                  </p>
-                </div>
-                <div className="empty-selection">
-                  <CircleDot size={20} />
-                  <p>Select a component on the canvas to edit its construction.</p>
-                </div>
+                    {project.harnessImages.length ? (
+                      <div className="harness-image-list">
+                        {project.harnessImages.map((image, index) => (
+                          <article
+                            className="harness-image-card"
+                            key={image.id}
+                            data-testid={`harness-image-${index + 1}`}
+                          >
+                            <img
+                              src={image.dataUrl}
+                              alt={
+                                image.title ||
+                                image.caption ||
+                                image.originalFilename ||
+                                `Harness image ${index + 1}`
+                              }
+                            />
+                            <div className="harness-image-file">
+                              <strong>
+                                {image.originalFilename || `Image ${index + 1}`}
+                              </strong>
+                              <span>
+                                {image.width} × {image.height} px · {image.mimeType}
+                              </span>
+                            </div>
+                            <Field label="Title" hint="optional">
+                              <input
+                                aria-label={`Harness image ${index + 1} title`}
+                                value={image.title ?? ""}
+                                onChange={(event) =>
+                                  updateHarnessImage(image.id, {
+                                    title: event.target.value || undefined,
+                                  })
+                                }
+                                placeholder="Harness routing"
+                              />
+                            </Field>
+                            <Field label="Caption" hint="optional">
+                              <textarea
+                                rows={4}
+                                aria-label={`Harness image ${index + 1} caption`}
+                                value={image.caption ?? ""}
+                                onChange={(event) =>
+                                  updateHarnessImage(image.id, {
+                                    caption: event.target.value || undefined,
+                                  })
+                                }
+                                placeholder="Assembly or installation details"
+                              />
+                            </Field>
+                            <div className="harness-image-actions">
+                              <button
+                                type="button"
+                                onClick={() => moveHarnessImage(image.id, -1)}
+                                disabled={index === 0}
+                                aria-label={`Move harness image ${index + 1} up`}
+                              >
+                                <ArrowUp size={14} /> Up
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveHarnessImage(image.id, 1)}
+                                disabled={index === project.harnessImages.length - 1}
+                                aria-label={`Move harness image ${index + 1} down`}
+                              >
+                                <ArrowDown size={14} /> Down
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  harnessImageReplaceIdRef.current = image.id;
+                                  harnessImageReplaceInputRef.current?.click();
+                                }}
+                              >
+                                <Upload size={14} /> Replace
+                              </button>
+                              <button
+                                type="button"
+                                className="danger"
+                                onClick={() => removeHarnessImage(image.id)}
+                                aria-label={`Delete harness image ${index + 1}`}
+                              >
+                                <Trash2 size={14} /> Delete
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-selection harness-images-empty">
+                        <Images size={22} />
+                        <p>No harness images have been added.</p>
+                      </div>
+                    )}
+                    <p className="photo-note">
+                      Images are resized, re-encoded, and embedded in this project.
+                      Their displayed order is also the HTML and PDF report order.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <h3>Harness details</h3>
+                    <Field label="Title">
+                      <input
+                        value={project.title}
+                        onChange={(event) =>
+                          updateProject((draft) => {
+                            draft.title = event.target.value;
+                          })
+                        }
+                      />
+                    </Field>
+                    <div className="field-row">
+                      <Field label="Revision">
+                        <input
+                          value={project.revision}
+                          onChange={(event) =>
+                            updateProject((draft) => {
+                              draft.revision = event.target.value;
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field label="Company">
+                        <input
+                          value={project.company}
+                          onChange={(event) =>
+                            updateProject((draft) => {
+                              draft.company = event.target.value;
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <div className="harness-notes-editor">
+                      <Field label="Harness notes" hint="Plain text">
+                        <textarea
+                          rows={16}
+                          value={project.notes}
+                          onChange={(event) =>
+                            updateProject((draft) => {
+                              draft.notes = event.target.value;
+                            })
+                          }
+                          placeholder={
+                            "Assembly notes\n\n- Route wires away from power rails.\n\nRevision notes"
+                          }
+                        />
+                      </Field>
+                      <p>
+                        Saved with this project and included in HTML and PDF reports.
+                        Validation issues remain separate editor checks.
+                      </p>
+                    </div>
+                    <div className="empty-selection">
+                      <CircleDot size={20} />
+                      <p>Select a component on the canvas to edit its construction.</p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <>

@@ -1060,6 +1060,133 @@ select:focus-visible {
   line-height: 1.45;
 }
 
+.harness-images-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.harness-images-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.harness-images-heading h3 {
+  margin-bottom: 4px;
+}
+
+.harness-images-heading p {
+  margin: 0;
+  color: #78878d;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.harness-images-heading > span {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: #50666d;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  background: #eef4f3;
+  border-radius: 999px;
+}
+
+.harness-images-upload {
+  min-height: 82px;
+}
+
+.harness-image-list {
+  display: grid;
+  gap: 12px;
+}
+
+.harness-image-card {
+  padding: 10px;
+  background: #f8faf9;
+  border: 1px solid #dbe3e1;
+  border-radius: 7px;
+}
+
+.harness-image-card > img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  margin-bottom: 8px;
+  object-fit: contain;
+  background: white;
+  border: 1px solid #d5dddb;
+  border-radius: 5px;
+}
+
+.harness-image-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #5c6e74;
+  font-size: 8px;
+}
+
+.harness-image-file strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-image-file span {
+  flex: 0 0 auto;
+  color: #859297;
+}
+
+.harness-image-card textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.harness-image-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.harness-image-actions button {
+  min-height: 29px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #4f6268;
+  font-size: 8px;
+  font-weight: 700;
+  background: white;
+  border: 1px solid #d2dad9;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.harness-image-actions button:hover:not(:disabled) {
+  color: var(--teal);
+  border-color: #8bbfbb;
+}
+
+.harness-image-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.harness-image-actions button.danger {
+  color: #a64c46;
+  background: #fff8f7;
+  border-color: #efd5d1;
+}
+
+.harness-images-empty {
+  margin-top: 0;
+}
+
 .field {
   display: block;
   margin-bottom: 10px;

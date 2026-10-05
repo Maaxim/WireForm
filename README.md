@@ -25,6 +25,8 @@ machine.
   cables, and bundles
 - Project-level twisted-pair relationships between two independent single wires
 - Project-wide plain-text harness notes with offline HTML report inclusion
+- Project-level Harness Images with embedded, normalized JPEG/PNG documentation
+  photos in HTML and PDF reports
 - Hold and drag to select multiple components
 - Move, copy, paste, and delete a component selection
 - Undo and redo
@@ -85,16 +87,20 @@ machine.
 12. Choose **Harness notes** in the left panel to edit project-wide assembly and
    revision documentation. Notes do not require a component selection and are
    stored in the editable `.wireform.json` project.
-13. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
+13. Choose **Harness images** to add one or more JPEG or PNG assembly, routing,
+    or installation photos. Add optional titles and captions, replace or delete
+    an image, and use the arrow controls to set their report order. No component
+    selection is required.
+14. Choose the spreadsheet icon in the top bar to export a native BOM CSV. It
    includes component housings, modeled wire/cable quantities, contacts, seals,
    and manual connector accessories.
-14. Choose the document icon to export a self-contained HTML engineering report.
+15. Choose the document icon to export a self-contained HTML engineering report.
    The report opens offline and includes the vector diagram and embedded
-   connector photos.
-15. Choose the PDF icon to export a native page-oriented PDF report. WireForm
+    connector and harness photos.
+16. Choose the PDF icon to export a native page-oriented PDF report. WireForm
    generates the PDF directly with pdfmake; it does not invoke browser printing.
-16. Review the generated WireViz preview or YAML in the lower panel.
-17. Resolve validation errors and choose **Download YAML**.
+17. Review the generated WireViz preview or YAML in the lower panel.
+18. Resolve validation errors and choose **Download YAML**.
 
 WireForm autosaves the current editable project in the browser. Download a
 `.wireform.json` project for a portable backup. YAML import deliberately shows
@@ -102,6 +108,17 @@ a compatibility report before replacing the canvas because comments, aliases,
 formatting, and unsupported WireViz fields cannot all be represented visually.
 Connector photos remain embedded in WireForm project and library files; a YAML
 download does not contain binary image data.
+
+Harness Images are project-level documentation. They are embedded in the
+WireForm project and do not require external image files after import. JPEG and
+PNG inputs are decoded in the browser, orientation-normalized, resized to a
+maximum 1920-pixel edge without upscaling, and re-encoded to limit project and
+report size. Re-encoding also avoids retaining source EXIF metadata such as GPS
+coordinates. Their explicit UI order is preserved at the bottom of both HTML
+and PDF reports. Harness Images are separate from connector photos and are not
+stored in component User Libraries. Because image bytes live in project JSON,
+large collections still increase autosave, IndexedDB, project, HTML, and PDF
+size.
 
 WireForm stores selected contacts on the exact connector-pin/conductor-end
 connection. WireViz has no per-pin contact assignment, so YAML export groups

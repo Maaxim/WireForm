@@ -19,6 +19,7 @@ import {
   type ReportCableAdditionalComponent,
   type ReportConnector,
   type ReportConnectorAdditionalComponent,
+  type ReportHarnessImage,
   type ReportPin,
   type ReportTermination,
   type ReportTwistedPair,
@@ -402,6 +403,54 @@ function cover(model: HarnessReportModel): Content[] {
   ];
 }
 
+function harnessImagesContent(
+  images: readonly ReportHarnessImage[],
+  includeImages: boolean,
+): Content[] {
+  if (!images.length) return [];
+  return [
+    heading("Additional Images", "before"),
+    ...images.map((image, index) => ({
+      stack: [
+        ...(image.title
+          ? [{ text: image.title, style: "subsectionHeading" }]
+          : []),
+        ...(includeImages && PDF_RASTER_IMAGE.test(image.dataUrl)
+          ? [
+              {
+                image: image.dataUrl,
+                // Leave enough vertical room for the section heading, image
+                // title, caption, page header/footer, and group margins. An
+                // oversized unbreakable portrait group can otherwise be
+                // dropped by pdfmake instead of moved intact to the next page.
+                fit: [440, 400] as [number, number],
+                alignment: "center" as const,
+                margin: [0, 4, 0, 8] as [number, number, number, number],
+              },
+            ]
+          : [
+              {
+                text: `Harness image ${index + 1} could not be embedded.`,
+                style: "empty",
+                margin: [0, 4, 0, 8] as [number, number, number, number],
+              },
+            ]),
+        ...(image.caption
+          ? [
+              {
+                text: image.caption,
+                style: "note",
+                preserveLeadingSpaces: true,
+              },
+            ]
+          : []),
+      ],
+      unbreakable: true,
+      margin: [0, 0, 0, 18] as [number, number, number, number],
+    })),
+  ];
+}
+
 export function buildHarnessPdfDocument(
   model: HarnessReportModel,
   options: PdfRenderOptions = {},
@@ -474,6 +523,8 @@ export function buildHarnessPdfDocument(
       margin: [0, 0, 0, 8],
     });
   }
+
+  content.push(...harnessImagesContent(model.harnessImages, includeImages));
 
   return {
     pageSize: "A4",
@@ -560,7 +611,7 @@ export async function downloadHarnessPdf(
       downloadBlob(blob, filename);
       return {
         warnings: [
-          "The diagram or a connector image could not be rendered; the PDF was downloaded without embedded graphics.",
+          "The diagram or an embedded image could not be rendered; the PDF was downloaded without embedded graphics.",
         ],
       };
     } catch {
