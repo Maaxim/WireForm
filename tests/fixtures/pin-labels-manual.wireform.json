@@ -1,0 +1,67 @@
+{
+  "format": "wireform-project",
+  "schemaVersion": 3,
+  "savedAt": "2000-01-01T00:00:00.000Z",
+  "project": {
+    "schemaVersion": 3,
+    "projectId": "pin-labels-manual",
+    "title": "Connector Pin Label Verification",
+    "revision": "A",
+    "company": "WireForm",
+    "notes": "Verify stable physical pins with editable connector markings.",
+    "harnessImages": [],
+    "components": [
+      {
+        "id": "connector-x1", "kind": "connector", "designator": "X1",
+        "name": "Four-position source", "x": 80, "y": 120,
+        "pinCount": 4, "wireCount": 0,
+        "pinLabels": ["A1", "A2", "B1", "B2"], "wireLabels": [], "colors": [],
+        "gauge": "", "length": "", "shield": false, "loops": "",
+        "manufacturer": "Molex", "mpn": "SOURCE-4", "supplier": "", "spn": "", "notes": ""
+      },
+      {
+        "id": "wire-w1", "kind": "wire", "designator": "W1", "name": "SDA", "x": 410, "y": 70,
+        "pinCount": 0, "wireCount": 1, "pinLabels": [], "wireLabels": ["I2C_SDA"], "colors": ["BU"],
+        "gauge": "24 AWG", "length": "0.5 m", "shield": false, "loops": "",
+        "manufacturer": "Alpha Wire", "mpn": "WIRE-1", "supplier": "", "spn": "", "notes": ""
+      },
+      {
+        "id": "wire-w2", "kind": "wire", "designator": "W2", "name": "SCL", "x": 410, "y": 180,
+        "pinCount": 0, "wireCount": 1, "pinLabels": [], "wireLabels": ["I2C_SCL"], "colors": ["WH"],
+        "gauge": "24 AWG", "length": "0.5 m", "shield": false, "loops": "",
+        "manufacturer": "Alpha Wire", "mpn": "WIRE-2", "supplier": "", "spn": "", "notes": ""
+      },
+      {
+        "id": "wire-w3", "kind": "wire", "designator": "W3", "name": "PWM", "x": 410, "y": 290,
+        "pinCount": 0, "wireCount": 1, "pinLabels": [], "wireLabels": ["FAN_PWM"], "colors": ["GN"],
+        "gauge": "24 AWG", "length": "0.5 m", "shield": false, "loops": "",
+        "manufacturer": "Alpha Wire", "mpn": "WIRE-3", "supplier": "", "spn": "", "notes": ""
+      },
+      {
+        "id": "wire-w4", "kind": "wire", "designator": "W4", "name": "Ground", "x": 410, "y": 400,
+        "pinCount": 0, "wireCount": 1, "pinLabels": [], "wireLabels": ["GND"], "colors": ["BK"],
+        "gauge": "24 AWG", "length": "0.5 m", "shield": false, "loops": "",
+        "manufacturer": "Alpha Wire", "mpn": "WIRE-4", "supplier": "", "spn": "", "notes": ""
+      },
+      {
+        "id": "connector-x2", "kind": "connector", "designator": "X2",
+        "name": "Four-position destination", "x": 820, "y": 120,
+        "pinCount": 4, "wireCount": 0,
+        "pinLabels": ["1", "2", "3", "4"], "wireLabels": [], "colors": [],
+        "gauge": "", "length": "", "shield": false, "loops": "",
+        "manufacturer": "Molex", "mpn": "DEST-4", "supplier": "", "spn": "", "notes": ""
+      }
+    ],
+    "links": [
+      { "id": "x1-w1", "from": { "nodeId": "connector-x1", "portId": "pin:1", "side": "right" }, "to": { "nodeId": "wire-w1", "portId": "wire:1", "side": "left" }, "termination": { "contact": { "manufacturer": "Molex", "mpn": "CONTACT-1" }, "seal": { "manufacturer": "Molex", "mpn": "SEAL-1" }, "stripLength": "5 mm", "tooling": "Tool 1" } },
+      { "id": "w1-x2", "from": { "nodeId": "wire-w1", "portId": "wire:1", "side": "right" }, "to": { "nodeId": "connector-x2", "portId": "pin:1", "side": "left" } },
+      { "id": "x1-w2", "from": { "nodeId": "connector-x1", "portId": "pin:2", "side": "right" }, "to": { "nodeId": "wire-w2", "portId": "wire:1", "side": "left" }, "termination": { "contact": { "manufacturer": "Molex", "mpn": "CONTACT-2" }, "seal": { "manufacturer": "Molex", "mpn": "SEAL-2" }, "stripLength": "5.5 mm", "tooling": "Tool 2" } },
+      { "id": "w2-x2", "from": { "nodeId": "wire-w2", "portId": "wire:1", "side": "right" }, "to": { "nodeId": "connector-x2", "portId": "pin:2", "side": "left" } },
+      { "id": "x1-w3", "from": { "nodeId": "connector-x1", "portId": "pin:3", "side": "right" }, "to": { "nodeId": "wire-w3", "portId": "wire:1", "side": "left" }, "termination": { "contact": { "manufacturer": "Molex", "mpn": "CONTACT-3" }, "seal": { "manufacturer": "Molex", "mpn": "SEAL-3" }, "stripLength": "6 mm", "tooling": "Tool 3" } },
+      { "id": "w3-x2", "from": { "nodeId": "wire-w3", "portId": "wire:1", "side": "right" }, "to": { "nodeId": "connector-x2", "portId": "pin:3", "side": "left" } },
+      { "id": "x1-w4", "from": { "nodeId": "connector-x1", "portId": "pin:4", "side": "right" }, "to": { "nodeId": "wire-w4", "portId": "wire:1", "side": "left" }, "termination": { "contact": { "manufacturer": "Molex", "mpn": "CONTACT-4" }, "seal": { "manufacturer": "Molex", "mpn": "SEAL-4" }, "stripLength": "6.5 mm", "tooling": "Tool 4" } },
+      { "id": "w4-x2", "from": { "nodeId": "wire-w4", "portId": "wire:1", "side": "right" }, "to": { "nodeId": "connector-x2", "portId": "pin:4", "side": "left" } }
+    ],
+    "twistedPairs": []
+  }
+}

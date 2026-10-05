@@ -14,6 +14,7 @@ machine.
 - Draggable topology canvas with connectors, cables, individual wires, bundles,
   splices, and junctions
 - Explicit pin and conductor terminations
+- Editable connector pin labels that keep the numeric physical pin identity stable
 - Per-wire-end contact, seal, strip-length, tooling, and termination notes
 - Solid and bi-color/striped WireViz wire colors, labels, gauge, length,
   shields, loops, and BOM fields
@@ -54,7 +55,8 @@ machine.
    panel.
 2. Select a component and edit its properties in the right inspector. A
    single-wire inspector provides primary and optional secondary/stripe color
-   selectors, a visual preview, and the resulting WireViz code.
+   selectors, a visual preview, and the resulting WireViz code. Connector
+   inspectors provide one editable display label per physical pin.
 3. Select one port and then a compatible port to connect them.
 4. Drag on empty canvas space to select several components. Drag any selected
    header to move the group; use <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>C</kbd> and
@@ -125,6 +127,16 @@ connection. WireViz has no per-pin contact assignment, so YAML export groups
 identical contacts and seals into each connector's `additional_components` with
 explicit quantities. Strip length, tooling, and termination notes remain
 WireForm-native manufacturing data and are retained in `.wireform.json` files.
+
+Connector pin labels are optional connector-marking metadata. The physical pin
+number remains the stable electrical and topology identity: renaming physical
+pin 3 from `B1` to `B01` does not modify its connection, signal, contact, seal,
+strip length, or tooling. Blank labels fall back to the physical number in the
+editor, while detailed views and HTML/PDF reports retain both the number and
+label for traceability. Signals remain separate conductor identification text.
+Connector copy/paste and User Library templates preserve labels. WireViz export
+uses its standard positional `pinlabels` array (including empty placeholders
+for partial labeling), while connections continue to reference numeric pins.
 
 Wire colors use the standard combined WireViz code as their authoritative
 stored and exported representation. A solid blue wire is `BU`; `BUWH` means a

@@ -12,6 +12,7 @@ import {
   type PortRef,
   type TopologyLink,
 } from "./model.ts";
+import { normalizePinLabel } from "./pin-labels.ts";
 import {
   CABLE_QTY_MULTIPLIERS,
   CONNECTOR_QTY_MULTIPLIERS,
@@ -269,7 +270,7 @@ function importedConnector(
   report: WireVizImportReport,
 ): ImportedNode {
   const attributes = recordValue(value) ?? {};
-  const pinLabels = listValue(attributes.pinlabels);
+  const pinLabels = listValue(attributes.pinlabels).map(normalizePinLabel);
   const pins = Array.isArray(attributes.pins)
     ? attributes.pins
         .map((pin) =>

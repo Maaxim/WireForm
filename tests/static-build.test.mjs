@@ -34,6 +34,8 @@ test("production build is a GitHub Pages-compatible static site", async () => {
   assert.match(script, /Import WireViz YAML/);
   assert.match(script, /Connector photo/);
   assert.match(script, /Pin terminations/);
+  assert.match(script, /Display metadata; physical pin identity stays numeric/);
+  assert.match(script, /Blank labels fall back to the physical pin number/);
   assert.match(script, /Apply contact to connected pins/);
   assert.match(script, /Additional components/);
   assert.match(script, /Heat shrink/);

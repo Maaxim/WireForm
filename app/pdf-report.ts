@@ -185,6 +185,7 @@ export function pdfWireColorCell(code: string): Content {
 
 const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
   { heading: "Pin", value: (row) => row.pin, width: 24 },
+  { heading: "Label", value: (row) => row.label, optional: true },
   { heading: "Signal", value: (row) => row.signal, optional: true },
   { heading: "Wire", value: (row) => row.cable, optional: true },
   { heading: "Cond.", value: (row) => row.conductor, optional: true },
@@ -345,6 +346,7 @@ const TWISTED_PAIR_COLUMNS: Array<PdfColumn<ReportTwistedPair>> = [
 const TERMINATION_COLUMNS: Array<PdfColumn<ReportTermination>> = [
   { heading: "Connector", value: (row) => row.connector, width: 48 },
   { heading: "Pin", value: (row) => row.pin, width: 28 },
+  { heading: "Label", value: (row) => row.pinLabel, optional: true },
   { heading: "Wire", value: (row) => row.cable, width: 44 },
   { heading: "Cond.", value: (row) => row.conductor, width: 44 },
   { heading: "Signal", value: (row) => row.signal, optional: true },

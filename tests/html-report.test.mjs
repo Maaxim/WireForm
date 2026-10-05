@@ -140,7 +140,8 @@ test("pinout maps signal, conductor, color, size, contact, and seal", () => {
   const x1 = value.connectors.find((item) => item.designator === "X1");
   assert.deepEqual(x1.pins[0], {
     pin: "1",
-    signal: "+24V",
+    label: "+24V",
+    signal: "RD",
     cable: "W1",
     conductor: "1 · RD",
     color: "RD",
@@ -162,9 +163,10 @@ test("termination rows map both ends and manufacturing metadata", () => {
   assert.deepEqual(value.terminations[0], {
     connector: "X1",
     pin: "1",
+    pinLabel: "+24V",
     cable: "W1",
     conductor: "1 · RD",
-    signal: "+24V",
+    signal: "RD",
     contactManufacturer: "HARTING",
     contactMpn: "CONTACT-A",
     sealPn: "SEAL-A",

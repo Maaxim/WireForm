@@ -121,6 +121,15 @@ import {
   type TwistedPair,
 } from "./model";
 import {
+  getConnectedPinSignal,
+  getConnectorPinLabel,
+  getPinDisplayName,
+  getPinTraceLabel,
+  pinLabelsForCount,
+  setConnectorPinLabel,
+  validateConnectorPinLabels,
+} from "./pin-labels";
+import {
   AUTOSAVE_KEY,
   LIBRARIES_KEY,
   readLocalDocument,
@@ -501,7 +510,7 @@ export function buildWireVizDocument(project: HarnessProject) {
             : node.name || "Connector",
       pincount: node.pinCount,
     };
-    const labels = listForCount(node.pinLabels, node.pinCount, "");
+    const labels = pinLabelsForCount(node.pinLabels, node.pinCount);
     if (labels.some(Boolean)) connector.pinlabels = labels;
 
     const explicitLoops = parseLoops(node.loops, node.pinCount);
@@ -687,6 +696,7 @@ function validateProject(project: HarnessProject): ValidationResult {
   const harnessImageIssues = validateHarnessImages(project);
   errors.push(...harnessImageIssues.errors);
   warnings.push(...harnessImageIssues.warnings);
+  warnings.push(...validateConnectorPinLabels(project));
   warnings.push(...validateWireColors(project));
 
   for (const link of project.links) {
@@ -2903,35 +2913,56 @@ export function HarnessStudio() {
                             node.shield &&
                             index === node.wireCount;
                           const number = index + 1;
+                          const isConnectorPin = CONNECTOR_KINDS.includes(
+                            node.kind,
+                          );
                           const portId = isShield
                             ? "shield"
-                            : CONNECTOR_KINDS.includes(node.kind)
+                            : isConnectorPin
                               ? `pin:${number}`
                               : `wire:${number}`;
                           const label = isShield
                             ? "Shield"
-                            : CONNECTOR_KINDS.includes(node.kind)
-                              ? node.pinLabels[index] || `Pin ${number}`
+                            : isConnectorPin
+                              ? getPinDisplayName(node, number)
                               : node.wireLabels[index] || `Conductor ${number}`;
+                          const pinSignal = isConnectorPin
+                            ? getConnectedPinSignal(project, node.id, number)
+                            : "";
+                          const pinTrace = isConnectorPin
+                            ? getPinTraceLabel(node, number)
+                            : label;
                           const colorCode =
                             !isShield && CABLE_KINDS.includes(node.kind)
                               ? (node.colors[index] ?? "BK")
                               : undefined;
-                           const terminationLink = CONNECTOR_KINDS.includes(
-                             node.kind,
-                           )
-                             ? findConnectorPinLink(project, node.id, number)
-                             : undefined;
-                           const terminationLabel =
-                             getTerminationPartLabel(
-                               terminationLink?.termination?.contact,
-                             ) ||
-                             getTerminationPartLabel(
-                               terminationLink?.termination?.seal,
-                             ) ||
-                             "Termination manufacturing data";
+                          const terminationLink = CONNECTOR_KINDS.includes(
+                            node.kind,
+                          )
+                            ? findConnectorPinLink(project, node.id, number)
+                            : undefined;
+                          const terminationLabel =
+                            getTerminationPartLabel(
+                              terminationLink?.termination?.contact,
+                            ) ||
+                            getTerminationPartLabel(
+                              terminationLink?.termination?.seal,
+                            ) ||
+                            "Termination manufacturing data";
                           return (
-                            <div className="node-row" key={`${node.id}-${portId}`}>
+                            <div
+                              className="node-row"
+                              key={`${node.id}-${portId}`}
+                              title={
+                                isConnectorPin
+                                  ? `${node.designator} · Physical pin ${number}${
+                                      getConnectorPinLabel(node, number)
+                                        ? ` · Label ${getConnectorPinLabel(node, number)}`
+                                        : ""
+                                    }${pinSignal ? ` · Signal ${pinSignal}` : ""}`
+                                  : undefined
+                              }
+                            >
                               <button
                                 className={`port left ${
                                   pendingPort &&
@@ -2960,7 +2991,7 @@ export function HarnessStudio() {
                                     side: "left",
                                   });
                                 }}
-                                aria-label={`Connect ${node.designator} ${label} left`}
+                                aria-label={`Connect ${node.designator} ${pinTrace} left`}
                               />
                               <span
                                 className={`row-swatch ${colorCode ? "wire-color" : ""}`}
@@ -2981,17 +3012,17 @@ export function HarnessStudio() {
                                 {isShield ? <Shield size={11} /> : number}
                               </span>
                               <span className="row-label">{label}</span>
-                               {hasWireTerminationData(
-                                 terminationLink?.termination,
-                               ) && (
-                                 <span
-                                   className="termination-badge"
-                                   title={terminationLabel}
-                                   aria-label={`Termination: ${terminationLabel}`}
-                                 >
-                                   T
-                                 </span>
-                               )}
+                              {hasWireTerminationData(
+                                terminationLink?.termination,
+                              ) && (
+                                <span
+                                  className="termination-badge"
+                                  title={terminationLabel}
+                                  aria-label={`Termination: ${terminationLabel}`}
+                                >
+                                  T
+                                </span>
+                              )}
                               {!isShield && CABLE_KINDS.includes(node.kind) && (
                                 <small>{node.colors[index] || "BK"}</small>
                               )}
@@ -3023,7 +3054,7 @@ export function HarnessStudio() {
                                     side: "right",
                                   });
                                 }}
-                                aria-label={`Connect ${node.designator} ${label} right`}
+                                aria-label={`Connect ${node.designator} ${pinTrace} right`}
                               />
                             </div>
                           );
@@ -3675,42 +3706,33 @@ export function HarnessStudio() {
                       </button>
                     </div>
                   </Field>
-                  <Field
-                    label={
-                      CONNECTOR_KINDS.includes(selected.kind)
-                        ? "Pin labels"
-                        : "Wire labels"
-                    }
-                    hint="Comma separated, in order"
-                  >
-                    <textarea
-                      rows={2}
-                      value={
-                        CONNECTOR_KINDS.includes(selected.kind)
-                          ? selected.pinLabels.join(", ")
-                          : selected.wireLabels.join(", ")
-                      }
-                      onChange={(event) =>
-                        updateSelected(
-                          CONNECTOR_KINDS.includes(selected.kind)
-                            ? {
-                                pinLabels: listForCount(
-                                  csvValues(event.target.value),
-                                  selected.pinCount,
-                                  "",
-                                ),
-                              }
-                            : {
-                                wireLabels: listForCount(
-                                  csvValues(event.target.value),
-                                  selected.wireCount,
-                                  "",
-                                ),
-                              },
-                        )
+                  {CONNECTOR_KINDS.includes(selected.kind) ? (
+                    <PinLabelsEditor
+                      project={project}
+                      connector={selected}
+                      onChange={(pin, label) =>
+                        updateSelected({
+                          pinLabels: setConnectorPinLabel(selected, pin, label),
+                        })
                       }
                     />
-                  </Field>
+                  ) : (
+                    <Field label="Wire labels" hint="Comma separated, in order">
+                      <textarea
+                        rows={2}
+                        value={selected.wireLabels.join(", ")}
+                        onChange={(event) =>
+                          updateSelected({
+                            wireLabels: listForCount(
+                              csvValues(event.target.value),
+                              selected.wireCount,
+                              "",
+                            ),
+                          })
+                        }
+                      />
+                    </Field>
+                  )}
 
                   {CONNECTOR_KINDS.includes(selected.kind) ? (
                     <Field label="Loops / jumpers" hint="Example: 1-2, 3-4">
@@ -5104,6 +5126,71 @@ function CableAdditionalComponentsSection({
   );
 }
 
+function PinLabelsEditor({
+  project,
+  connector,
+  onChange,
+}: {
+  project: HarnessProject;
+  connector: HarnessComponent;
+  onChange: (pin: number, label: string) => void;
+}) {
+  return (
+    <div className="pin-label-editor">
+      <div className="pin-label-heading">
+        <strong>Pin labels</strong>
+        <small>Display metadata; physical pin identity stays numeric</small>
+      </div>
+      <div className="pin-label-table-wrap">
+        <table className="pin-label-table">
+          <thead>
+            <tr>
+              <th>Pin</th>
+              <th>Label</th>
+              <th>Signal</th>
+              <th>Connection</th>
+              <th>Contact</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: connector.pinCount }, (_, index) => {
+              const pin = index + 1;
+              const link = findConnectorPinLink(project, connector.id, pin);
+              const signal = getConnectedPinSignal(project, connector.id, pin);
+              const contact = getTerminationPartLabel(link?.termination?.contact);
+              return (
+                <tr key={`${connector.id}-pin-label-${pin}`}>
+                  <td title={`Stable physical pin ${pin}`}>{pin}</td>
+                  <td>
+                    <input
+                      aria-label={`Pin ${pin} label`}
+                      value={getConnectorPinLabel(connector, pin)}
+                      onChange={(event) => onChange(pin, event.target.value)}
+                      placeholder={`Pin ${pin}`}
+                      maxLength={300}
+                    />
+                  </td>
+                  <td>{signal || "—"}</td>
+                  <td>
+                    {link
+                      ? connectedEndpointLabel(project, connector.id, link)
+                      : "Unconnected"}
+                  </td>
+                  <td>{contact || "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="section-note">
+        Blank labels fall back to the physical pin number. Signals remain conductor
+        identification text.
+      </p>
+    </div>
+  );
+}
+
 function connectedEndpointLabel(
   project: HarnessProject,
   connectorId: string,
@@ -5152,10 +5239,15 @@ function PinTerminationsSection({
         {Array.from({ length: connector.pinCount }, (_, index) => {
           const pin = index + 1;
           const link = findConnectorPinLink(project, connector.id, pin);
-          const label = connector.pinLabels[index] || "â€”";
+          const label = getConnectorPinLabel(connector, pin) || "—";
+          const traceLabel = getPinTraceLabel(connector, pin);
           if (!link) {
             return (
-              <div className="termination-empty-row" key={`${connector.id}-${pin}`}>
+              <div
+                className="termination-empty-row"
+                key={`${connector.id}-${pin}`}
+                title={`${connector.designator} / ${traceLabel}`}
+              >
                 <strong>{pin}</strong>
                 <span>{label}</span>
                 <small>Unconnected</small>
@@ -5166,7 +5258,7 @@ function PinTerminationsSection({
             getTerminationPartLabel(link.termination?.contact) || "Add contact";
           return (
             <details className="termination-row" key={link.id}>
-              <summary>
+              <summary title={`${connector.designator} / ${traceLabel}`}>
                 <strong>{pin}</strong>
                 <span className="termination-pin-label">{label}</span>
                 <small>{connectedEndpointLabel(project, connector.id, link)}</small>

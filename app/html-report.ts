@@ -33,6 +33,10 @@ import {
   getWireColorCssBackground,
   getWireColorDisplay,
 } from "./wire-colors.ts";
+import {
+  getConnectorPinLabel,
+  getConductorSignal,
+} from "./pin-labels.ts";
 
 export interface ReportProjectMetadata {
   title: string;
@@ -44,6 +48,7 @@ export interface ReportProjectMetadata {
 
 export interface ReportPin {
   pin: string;
+  label: string;
   signal: string;
   cable: string;
   conductor: string;
@@ -131,6 +136,7 @@ export interface ReportCableAdditionalComponent {
 export interface ReportTermination {
   connector: string;
   pin: string;
+  pinLabel: string;
   cable: string;
   conductor: string;
   signal: string;
@@ -281,12 +287,13 @@ function pinRows(
             naturalCompare(left.link.id, right.link.id)
           );
         });
-      const signal = clean(connector.pinLabels[pin - 1]);
+      const label = getConnectorPinLabel(connector, pin);
       if (!contexts.length) {
         return [
           {
             pin: String(pin),
-            signal,
+            label,
+            signal: "",
             cable: "",
             conductor: "",
             color: "",
@@ -301,9 +308,8 @@ function pinRows(
         const conductor = portOrdinal(cablePortId);
         return {
           pin: String(pin),
-          signal:
-            signal ||
-            (conductor ? clean(cable.wireLabels[conductor - 1]) : ""),
+          label,
+          signal: getConductorSignal(cable, cablePortId),
           cable: cable.designator,
           conductor: conductorLabel(cable, cablePortId),
           color: conductor ? clean(cable.colors[conductor - 1]) : "",
@@ -523,16 +529,16 @@ function buildTerminations(project: HarnessProject): ReportTermination[] {
       const termination = compactWireTermination(context.link.termination);
       if (!termination) return [];
       const pin = portOrdinal(context.connectorPortId);
-      const conductor = portOrdinal(context.cablePortId);
       return [
         {
           connector: context.connector.designator,
           pin: pin ? String(pin) : context.connectorPortId,
+          pinLabel: pin
+            ? getConnectorPinLabel(context.connector, pin)
+            : "",
           cable: context.cable.designator,
           conductor: conductorLabel(context.cable, context.cablePortId),
-          signal:
-            (pin ? clean(context.connector.pinLabels[pin - 1]) : "") ||
-            (conductor ? clean(context.cable.wireLabels[conductor - 1]) : ""),
+          signal: getConductorSignal(context.cable, context.cablePortId),
           contactManufacturer: clean(termination.contact?.manufacturer),
           contactMpn: partNumber(termination.contact),
           sealPn: partNumber(termination.seal),
@@ -864,6 +870,7 @@ function approvedAlternativesTable(
 function connectorSection(connector: ReportConnector, index: number) {
   const pinColumns: Array<TableColumn<ReportPin>> = [
     { heading: "Pin", value: (row) => row.pin },
+    { heading: "Label", value: (row) => row.label, optional: true },
     { heading: "Signal", value: (row) => row.signal, optional: true },
     { heading: "Cable / wire", value: (row) => row.cable, optional: true },
     { heading: "Conductor", value: (row) => row.conductor, optional: true },
@@ -1015,6 +1022,7 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
   const terminationColumns: Array<TableColumn<ReportTermination>> = [
     { heading: "Connector", value: (row) => row.connector },
     { heading: "Pin / cavity", value: (row) => row.pin },
+    { heading: "Pin label", value: (row) => row.pinLabel, optional: true },
     { heading: "Wire / cable", value: (row) => row.cable },
     { heading: "Conductor", value: (row) => row.conductor },
     { heading: "Signal", value: (row) => row.signal, optional: true },
