@@ -258,6 +258,128 @@ test("history snapshots and pasted links isolate nested termination data", () =>
   assert.equal(pasted.to.nodeId, "w1-copy");
 });
 
+test("applying a contact to connected pins also overwrites strip length", () => {
+  const { project, j1 } = aggregationProject();
+  const connected = project.links.filter((link) =>
+    [link.from, link.to].some((port) => port.nodeId === j1.id),
+  );
+  const [source, targetA, targetB] = connected;
+  source.termination = {
+    contact: {
+      type: "Crimp contact",
+      manufacturer: "Molex",
+      mpn: "0430300001",
+    },
+    seal: { manufacturer: "Molex", mpn: "SOURCE-SEAL" },
+    stripLength: "5.0 mm",
+    tooling: "Source applicator",
+    notes: "Source note",
+  };
+  targetA.termination = {
+    contact: { manufacturer: "Old", mpn: "OLD-1" },
+    seal: { manufacturer: "Target", mpn: "TARGET-SEAL-1" },
+    tooling: "Target tool 1",
+    notes: "Target note 1",
+  };
+  targetB.termination = {
+    contact: { manufacturer: "Old", mpn: "OLD-2" },
+    seal: { manufacturer: "Target", mpn: "TARGET-SEAL-2" },
+    stripLength: "8 mm",
+    tooling: "Target tool 2",
+    notes: "Target note 2",
+  };
+
+  const before = model.cloneProject(project);
+  const applied = terminationTools.applyContactToConnectedPins(
+    project,
+    j1.id,
+    source.id,
+  );
+
+  assert.equal(applied, 3);
+  for (const link of connected) {
+    assert.deepEqual(link.termination.contact, {
+      type: "Crimp contact",
+      manufacturer: "Molex",
+      mpn: "0430300001",
+    });
+    assert.equal(link.termination.stripLength, "5.0 mm");
+  }
+  assert.deepEqual(targetA.termination.seal, {
+    manufacturer: "Target",
+    mpn: "TARGET-SEAL-1",
+  });
+  assert.equal(targetA.termination.tooling, "Target tool 1");
+  assert.equal(targetA.termination.notes, "Target note 1");
+  assert.equal(targetB.termination.tooling, "Target tool 2");
+  assert.equal(
+    before.links.find((link) => link.id === targetA.id).termination.stripLength,
+    undefined,
+  );
+  assert.equal(
+    before.links.find((link) => link.id === targetB.id).termination.stripLength,
+    "8 mm",
+  );
+
+  const after = model.cloneProject(project);
+  const undone = model.cloneProject(before);
+  assert.equal(
+    undone.links.find((link) => link.id === targetA.id).termination.stripLength,
+    undefined,
+  );
+  assert.equal(
+    undone.links.find((link) => link.id === targetB.id).termination.stripLength,
+    "8 mm",
+  );
+  const redone = model.cloneProject(after);
+  assert.equal(
+    redone.links.find((link) => link.id === targetA.id).termination.stripLength,
+    "5.0 mm",
+  );
+  assert.equal(
+    redone.links.find((link) => link.id === targetB.id).termination.stripLength,
+    "5.0 mm",
+  );
+});
+
+test("applying a contact with no source strip length clears target strip lengths", () => {
+  const { project, j1, j2 } = aggregationProject();
+  const connected = project.links.filter((link) =>
+    [link.from, link.to].some((port) => port.nodeId === j1.id),
+  );
+  const [source, target] = connected;
+  source.termination = {
+    contact: { manufacturer: "Molex", mpn: "0430300001" },
+    seal: { manufacturer: "Molex", mpn: "SOURCE-SEAL" },
+    tooling: "Source tool",
+  };
+  target.termination = {
+    contact: { manufacturer: "Old", mpn: "OLD" },
+    seal: { manufacturer: "Target", mpn: "TARGET-SEAL" },
+    stripLength: "8 mm",
+    tooling: "Target tool",
+  };
+  const unrelated = project.links.find((link) =>
+    [link.from, link.to].some((port) => port.nodeId === j2.id),
+  );
+  unrelated.termination.stripLength = "9 mm";
+
+  const applied = terminationTools.applyContactToConnectedPins(
+    project,
+    j1.id,
+    source.id,
+  );
+
+  assert.equal(applied, 3);
+  assert.equal(target.termination.stripLength, undefined);
+  assert.deepEqual(target.termination.seal, {
+    manufacturer: "Target",
+    mpn: "TARGET-SEAL",
+  });
+  assert.equal(target.termination.tooling, "Target tool");
+  assert.equal(unrelated.termination.stripLength, "9 mm");
+});
+
 test("deleting and reconnecting a wire end does not retain its old termination", () => {
   const { project } = aggregationProject();
   const removed = project.links.shift();

@@ -77,6 +77,33 @@ export function findConnectorPinLink(
   );
 }
 
+export function applyContactToConnectedPins(
+  project: HarnessProject,
+  connectorId: string,
+  sourceLinkId: string,
+) {
+  const sourceTermination = structuredClone(
+    project.links.find((link) => link.id === sourceLinkId)?.termination,
+  );
+  if (!sourceTermination?.contact) return 0;
+
+  let applied = 0;
+  for (const link of project.links) {
+    const attached = [link.from, link.to].some(
+      (port) =>
+        port.nodeId === connectorId && port.portId.startsWith("pin:"),
+    );
+    if (!attached) continue;
+    link.termination = compactWireTermination({
+      ...(link.termination ?? {}),
+      contact: structuredClone(sourceTermination.contact),
+      stripLength: sourceTermination.stripLength,
+    });
+    applied += 1;
+  }
+  return applied;
+}
+
 function endpointKinds(project: HarnessProject, link: TopologyLink) {
   const fromNode = project.components.find(
     (component) => component.id === link.from.nodeId,

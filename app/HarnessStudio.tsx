@@ -128,6 +128,7 @@ import {
 } from "./storage";
 import { WIREVIZ_VERSION } from "./vendor";
 import {
+  applyContactToConnectedPins,
   collectConnectorAdditionalComponents,
   compactWireTermination,
   findConnectorPinLink,
@@ -1530,20 +1531,9 @@ export function HarnessStudio() {
     let applied = 0;
     updateProject(
       (draft) => {
-        for (const link of draft.links) {
-          const attached = [link.from, link.to].some(
-            (port) =>
-              port.nodeId === connectorId && port.portId.startsWith("pin:"),
-          );
-          if (!attached) continue;
-          link.termination = compactWireTermination({
-            ...(link.termination ?? {}),
-            contact: structuredClone(sourceContact),
-          });
-          applied += 1;
-        }
+        applied = applyContactToConnectedPins(draft, connectorId, sourceLinkId);
       },
-      "Contact copied to all connected pins.",
+      "Contact and strip length copied to all connected pins.",
     );
     if (applied === 0) {
       setNotice("This connector has no connected pins.");
