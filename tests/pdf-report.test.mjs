@@ -208,6 +208,57 @@ test("PDF uses sanitized diagram SVG as vector input and embeds valid connector 
   const imageNodes = findNodes(definition.content, (node) => typeof node.image === "string");
   assert.equal(imageNodes.length, 1);
   assert.equal(imageNodes[0].image, PIXEL);
+  assert.match(allText(definition.content), /X1 connector/);
+});
+
+test("connector image alternative text is shared by HTML and PDF", () => {
+  const project = projectFixture();
+  const alternativeText =
+    "Panel-side receptacle, keyed version\nAußenmontage – 90° / µ-version <script>";
+  project.components[0].photo.alt = alternativeText;
+
+  const report = htmlReport.buildHarnessReportModel(project, SAFE_SVG);
+  assert.equal(report.connectors[0].photo.alt, alternativeText);
+
+  const html = htmlReport.renderHarnessReportHtml(report);
+  assert.match(
+    html,
+    /Panel-side receptacle, keyed version\nAußenmontage – 90° \/ µ-version &lt;script&gt;/,
+  );
+  assert.doesNotMatch(html, /<script>.*Panel-side receptacle/s);
+
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const alternativeNodes = findNodes(
+    definition.content,
+    (node) => node.text === alternativeText,
+  );
+  assert.equal(alternativeNodes.length, 1);
+  assert.equal(alternativeNodes[0].style, "smallText");
+  assert.match(allText(definition.content), /Molex/);
+  assert.match(allText(definition.content), /123456/);
+  assert.match(allText(definition.content), /TE Connectivity/);
+  assert.match(allText(definition.content), /Secondary Lock \/ TPA/);
+  assert.match(allText(definition.content), /CONTACT-1/);
+  assert.match(allText(definition.content), /SEAL-1/);
+});
+
+test("blank connector image alternative text creates no HTML caption or PDF text block", () => {
+  const project = projectFixture();
+  project.components[0].photo.alt = "";
+  const report = htmlReport.buildHarnessReportModel(project, SAFE_SVG);
+  assert.equal(report.connectors[0].photo.alt, "");
+
+  const html = htmlReport.renderHarnessReportHtml(report);
+  assert.doesNotMatch(html, /<figcaption>/);
+  assert.match(html, /alt="X1 connector image"/);
+
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const imageNodes = findNodes(definition.content, (node) => typeof node.image === "string");
+  assert.equal(imageNodes.length, 1);
+  assert.equal(
+    findNodes(definition.content, (node) => node.style === "smallText" && node.text === "").length,
+    0,
+  );
 });
 
 test("missing or invalid connector image is omitted without changing report content", () => {

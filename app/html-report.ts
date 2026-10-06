@@ -327,7 +327,7 @@ function safePhoto(component: HarnessComponent) {
   if (!photo || !SAFE_IMAGE_DATA_URL.test(photo.dataUrl)) return undefined;
   return {
     dataUrl: photo.dataUrl,
-    alt: clean(photo.alt) || `${component.designator} connector image`,
+    alt: clean(photo.alt),
     width: photo.width,
     height: photo.height,
   };
@@ -891,10 +891,14 @@ function connectorSection(connector: ReportConnector, index: number) {
   ];
   const image = connector.photo
     ? `<figure><img src="${escapeHtml(connector.photo.dataUrl)}" alt="${escapeHtml(
-        connector.photo.alt,
+        connector.photo.alt || `${connector.designator} connector image`,
       )}" width="${connector.photo.width}" height="${
         connector.photo.height
-      }"><figcaption>${escapeHtml(connector.photo.alt)}</figcaption></figure>`
+      }">${
+        connector.photo.alt
+          ? `<figcaption>${escapeHtml(connector.photo.alt)}</figcaption>`
+          : ""
+      }</figure>`
     : "";
   const additionalComponentColumns: Array<
     TableColumn<ReportConnectorAdditionalComponent>

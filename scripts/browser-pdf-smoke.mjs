@@ -64,7 +64,12 @@ async function evaluate(expression) {
     awaitPromise: true,
     returnByValue: true,
   });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (result.exceptionDetails) {
+    throw new Error(
+      result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text,
+    );
+  }
   return result.result.value;
 }
 
@@ -120,7 +125,7 @@ if (mode === "large") {
       connector.manufacturer = 'Molex';
       connector.mpn = 'HOUSING-' + (index + 1);
       connector.notes = 'Inspect keying and latch before mating.';
-      connector.photo = { dataUrl: pixel, fileName: 'connector.png', mimeType: 'image/png', width: 1, height: 1, alt: connector.designator + ' connector image' };
+      connector.photo = { dataUrl: pixel, fileName: 'connector.png', mimeType: 'image/png', width: 1, height: 1, alt: index === 0 ? 'Panel-side receptacle, keyed version\\nAußenmontage – 90° / µ-version' : connector.designator + ' connector image' };
       connector.approvedAlternatives = [{ id: 'alt-x-' + index, manufacturer: 'TE Connectivity', mpn: 'ALT-HOUSING-' + (index + 1), note: 'Approved substitute' }];
       connector.additionalComponents = [{ id: 'acc-x-' + index, type: 'Secondary Lock / TPA', manufacturer: 'Molex', mpn: '5051520400', qty: 1, unit: 'pcs' }];
       return connector;
@@ -167,6 +172,12 @@ if (mode === "large") {
     project.twistedPairs = Array.from({ length: 6 }, (_, index) => ({ id: 'tp-' + (index + 1), designator: 'TP' + (index + 1), members: [wires[index * 2].id, wires[index * 2 + 1].id], twistPitchMm: 25 + index, twistDirection: index % 2 ? 'S' : 'Z', note: 'Differential pair ' + (index + 1) }));
     const svg = '<svg width="1000pt" height="360pt" viewBox="0 0 1000 360" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="996" height="356" fill="white" stroke="#17212b"/><text x="500" y="45" text-anchor="middle" font-family="Roboto" font-size="24">Production Harness µ Ω ± ×</text>' + wires.map((wire, index) => '<line x1="100" y1="' + (75 + index * 20) + '" x2="900" y2="' + (75 + index * 20) + '" stroke="' + (index % 2 ? '#2574a9' : '#1f6f78') + '" stroke-width="2"/><text x="70" y="' + (79 + index * 20) + '" font-size="11">' + wire.designator + '</text>').join('') + '</svg>';
     const report = reportModule.buildHarnessReportModel(project, svg);
+    const html = reportModule.renderHarnessReportHtml(report);
+    window.__wireformAlternativeTextHtml = {
+      firstConnectorAlternativeText: report.connectors[0].photo.alt,
+      containsFirstLine: html.includes('Panel-side receptacle, keyed version'),
+      containsUnicodeLine: html.includes('Außenmontage – 90° / µ-version'),
+    };
     return pdfModule.downloadHarnessPdf(report, 'production-prufstand-large.pdf');
   })()`);
 } else {
@@ -184,7 +195,8 @@ const finalState = await evaluate(`({
   buttonDisabled: document.querySelector('[aria-label="Export PDF report"]').disabled,
   externalResources: performance.getEntriesByType('resource')
     .map((entry) => entry.name)
-    .filter((url) => !url.startsWith(location.origin) && !url.startsWith('blob:') && !url.startsWith('data:'))
+    .filter((url) => !url.startsWith(location.origin) && !url.startsWith('blob:') && !url.startsWith('data:')),
+  alternativeTextHtml: window.__wireformAlternativeTextHtml ?? null
 })`);
 
 if (finalState.externalResources.length) {

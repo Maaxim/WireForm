@@ -233,10 +233,24 @@ function connectorContent(
   const photo =
     includeImages && connector.photo && PDF_RASTER_IMAGE.test(connector.photo.dataUrl)
       ? {
-          image: connector.photo.dataUrl,
-          fit: [150, 105] as [number, number],
-          alignment: "right" as const,
-          margin: [8, 0, 0, 4] as [number, number, number, number],
+          stack: [
+            {
+              image: connector.photo.dataUrl,
+              fit: [150, 105] as [number, number],
+              alignment: "right" as const,
+              margin: [8, 0, 0, 4] as [number, number, number, number],
+            },
+            ...(connector.photo.alt
+              ? [
+                  {
+                    text: connector.photo.alt,
+                    style: "smallText",
+                    alignment: "right" as const,
+                    margin: [8, 0, 0, 4] as [number, number, number, number],
+                  },
+                ]
+              : []),
+          ],
         }
       : undefined;
   const overview: Content = {
@@ -262,7 +276,7 @@ function connectorContent(
             : []),
         ],
       },
-      ...(photo ? [{ width: 165, stack: [photo] }] : []),
+      ...(photo ? [{ width: 165, stack: photo.stack }] : []),
     ],
     columnGap: 10,
   };
