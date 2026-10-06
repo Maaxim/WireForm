@@ -31,7 +31,7 @@ test("schema-1 projects migrate and round-trip through the project file", () => 
 
   const migrated = model.normalizeProject(schema1);
   assert.equal(migrated.migratedFrom, 1);
-  assert.equal(migrated.project.schemaVersion, 3);
+  assert.equal(migrated.project.schemaVersion, 4);
   assert.match(migrated.project.projectId, /^project-/);
   assert.equal(migrated.project.components[0].photo.alt, "J1");
 
@@ -61,7 +61,7 @@ test("schema-2 projects migrate without inventing termination metadata", () => {
   });
 
   assert.equal(migrated.migratedFrom, 2);
-  assert.equal(migrated.project.schemaVersion, 3);
+  assert.equal(migrated.project.schemaVersion, 4);
   assert.equal(migrated.project.links[0].termination, undefined);
 });
 

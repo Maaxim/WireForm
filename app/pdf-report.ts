@@ -17,6 +17,7 @@ import {
   type HarnessReportModel,
   type ReportCable,
   type ReportCableAdditionalComponent,
+  type ReportConductor,
   type ReportConnector,
   type ReportConnectorAdditionalComponent,
   type ReportHarnessImage,
@@ -320,10 +321,34 @@ const CABLE_COLUMNS: Array<PdfColumn<ReportCable>> = [
   { heading: "Notes", value: (row) => row.notes, optional: true },
 ];
 
+const CONDUCTOR_COLUMNS: Array<PdfColumn<ReportConductor>> = [
+  { heading: "Conductor", value: (row) => row.number, width: 50, numeric: true },
+  { heading: "Label", value: (row) => row.label, optional: true },
+  {
+    heading: "Color",
+    value: (row) => row.color,
+    cell: (row) => pdfWireColorCell(row.color),
+    width: 105,
+    optional: true,
+  },
+  { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
+];
+
 function cableDetails(cable: ReportCable): Content[] {
-  if (!cable.approvedAlternatives.length && !cable.additionalComponents.length) return [];
+  const showConductors = cable.kind === "bundle" && cable.conductors.length > 0;
+  if (
+    !showConductors &&
+    !cable.approvedAlternatives.length &&
+    !cable.additionalComponents.length
+  ) return [];
   return [
     subsection(`${cable.designator} — ${cable.kind}`),
+    ...(showConductors
+      ? [
+          subsection("Bundle Conductors"),
+          table(cable.conductors, CONDUCTOR_COLUMNS, ""),
+        ]
+      : []),
     ...alternativesTable(cable.approvedAlternatives),
     ...(cable.additionalComponents.length
       ? [
@@ -336,17 +361,17 @@ function cableDetails(cable: ReportCable): Content[] {
 
 const TWISTED_PAIR_COLUMNS: Array<PdfColumn<ReportTwistedPair>> = [
   { heading: "Pair", value: (row) => row.designator, width: 48 },
-  { heading: "Wire A", value: (row) => row.wireA },
+  { heading: "Member A", value: (row) => row.wireA },
   {
-    heading: "Wire A color",
+    heading: "Member A color",
     value: (row) => row.wireAColor,
     cell: (row) => pdfWireColorCell(row.wireAColor),
     width: 105,
     optional: true,
   },
-  { heading: "Wire B", value: (row) => row.wireB },
+  { heading: "Member B", value: (row) => row.wireB },
   {
-    heading: "Wire B color",
+    heading: "Member B color",
     value: (row) => row.wireBColor,
     cell: (row) => pdfWireColorCell(row.wireBColor),
     width: 105,

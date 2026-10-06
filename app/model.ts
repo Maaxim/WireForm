@@ -1,4 +1,4 @@
-export const PROJECT_SCHEMA_VERSION = 3 as const;
+export const PROJECT_SCHEMA_VERSION = 4 as const;
 export const PROJECT_FILE_FORMAT = "wireform-project";
 
 export type ComponentKind =
@@ -94,6 +94,7 @@ export interface HarnessComponent {
   wireCount: number;
   pinLabels: string[];
   wireLabels: string[];
+  conductorIds: string[];
   colors: string[];
   gauge: string;
   length: string;
@@ -124,10 +125,14 @@ export interface TopologyLink {
 
 export type TwistDirection = "S" | "Z" | "unspecified";
 
+export type TwistedPairMember =
+  | { kind: "wire"; wireId: string }
+  | { kind: "bundle-conductor"; bundleId: string; conductorId: string };
+
 export interface TwistedPair {
   id: string;
   designator: string;
-  members: string[];
+  members: TwistedPairMember[];
   twistPitchMm?: number;
   twistDirection: TwistDirection;
   note?: string;
@@ -231,6 +236,10 @@ export function createApprovedPartAlternativeId() {
 
 export function createTwistedPairId() {
   return createId("twisted-pair");
+}
+
+export function createConductorId() {
+  return createId("conductor");
 }
 
 export function createHarnessImageId() {
@@ -522,6 +531,9 @@ export function makeComponent(
     wireLabels: CABLE_KINDS.includes(kind)
       ? Array.from({ length: count }, () => "")
       : [],
+    conductorIds: CABLE_KINDS.includes(kind)
+      ? Array.from({ length: count }, () => createConductorId())
+      : [],
     colors: CABLE_KINDS.includes(kind)
       ? Array.from(
           { length: count },
@@ -582,6 +594,23 @@ function normalizeComponent(
   const approvedAlternatives = normalizeApprovedPartAlternatives(
     source.approvedAlternatives,
   );
+  const rawConductorIds = stringList(source.conductorIds).slice(0, wireCount);
+  const conductorIds: string[] = [];
+  const usedConductorIds = new Set<string>();
+  for (let conductorIndex = 0; conductorIndex < wireCount; conductorIndex += 1) {
+    const candidate = rawConductorIds[conductorIndex]?.trim();
+    const fallbackBase = `${id}-conductor-${conductorIndex + 1}`;
+    let fallback = fallbackBase;
+    let fallbackSuffix = 2;
+    while (usedConductorIds.has(fallback)) {
+      fallback = `${fallbackBase}-${fallbackSuffix}`;
+      fallbackSuffix += 1;
+    }
+    const conductorId =
+      candidate && !usedConductorIds.has(candidate) ? candidate : fallback;
+    conductorIds.push(conductorId);
+    usedConductorIds.add(conductorId);
+  }
   return {
     ...base,
     id,
@@ -603,6 +632,7 @@ function normalizeComponent(
     wireCount,
     pinLabels: stringList(source.pinLabels).slice(0, pinCount),
     wireLabels: stringList(source.wireLabels).slice(0, wireCount),
+    conductorIds,
     colors: stringList(source.colors)
       .slice(0, wireCount)
       .map((color) => color.toUpperCase()),
@@ -708,7 +738,28 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     let id = textValue(source.id, `twisted-pair-${index + 1}`, 240);
     if (!id || usedPairIds.has(id)) id = createId("twisted-pair");
     usedPairIds.add(id);
-    const members = stringList(source.members, 16);
+    const members = (Array.isArray(source.members) ? source.members : [])
+      .slice(0, 16)
+      .flatMap((member): TwistedPairMember[] => {
+        if (typeof member === "string") {
+          return [{ kind: "wire", wireId: member.slice(0, 240) }];
+        }
+        const memberSource = recordValue(member);
+        if (memberSource?.kind === "wire") {
+          return [{
+            kind: "wire",
+            wireId: textValue(memberSource.wireId, "", 240),
+          }];
+        }
+        if (memberSource?.kind === "bundle-conductor") {
+          return [{
+            kind: "bundle-conductor",
+            bundleId: textValue(memberSource.bundleId, "", 240),
+            conductorId: textValue(memberSource.conductorId, "", 240),
+          }];
+        }
+        return [];
+      });
     const rawPitch = source.twistPitchMm;
     const parsedPitch =
       rawPitch === undefined || rawPitch === "" ? undefined : Number(rawPitch);

@@ -6,6 +6,8 @@ const model = await import("../app/model.ts");
 const pairs = await import("../app/twisted-pair.ts");
 const bom = await import("../app/bom.ts");
 const report = await import("../app/html-report.ts");
+const pdfReport = await import("../app/pdf-report.ts");
+const library = await import("../app/library.ts");
 const wirevizImport = await import("../app/wireviz-import.ts");
 
 const SAFE_SVG =
@@ -32,7 +34,10 @@ test("creates a stable project-level pair and allocates natural designators", ()
   const first = pairs.createTwistedPair(project, ["wire-a", "wire-b"]);
   assert.match(first.id, /^twisted-pair-/);
   assert.equal(first.designator, "TP1");
-  assert.deepEqual(first.members, ["wire-a", "wire-b"]);
+  assert.deepEqual(first.members, [
+    { kind: "wire", wireId: "wire-a" },
+    { kind: "wire", wireId: "wire-b" },
+  ]);
   project.twistedPairs.push(first, {
     ...structuredClone(first),
     id: "existing-3",
@@ -66,7 +71,10 @@ test("renaming a member does not change stable pair references", () => {
   const project = projectWithWires();
   project.twistedPairs.push(pairs.createTwistedPair(project, ["wire-a", "wire-b"]));
   project.components[0].designator = "DATA_P";
-  assert.deepEqual(project.twistedPairs[0].members, ["wire-a", "wire-b"]);
+  assert.deepEqual(project.twistedPairs[0].members, [
+    { kind: "wire", wireId: "wire-a" },
+    { kind: "wire", wireId: "wire-b" },
+  ]);
   assert.equal(pairs.validateTwistedPairs(project).errors.length, 0);
 });
 
@@ -153,7 +161,10 @@ test("copying both members clones the pair; copying one creates no half-pair", (
   assert.equal(both.length, 1);
   assert.notEqual(both[0].id, original.id);
   assert.equal(both[0].designator, "TP2");
-  assert.deepEqual(both[0].members, ["wire-c", "wire-d"]);
+  assert.deepEqual(both[0].members, [
+    { kind: "wire", wireId: "wire-c" },
+    { kind: "wire", wireId: "wire-d" },
+  ]);
   const one = pairs.cloneTwistedPairsForPaste(
     [original],
     new Map([["wire-a", "wire-c"]]),
@@ -204,6 +215,240 @@ test("HTML report shows natural pair ordering, membership, pitch, direction, and
   assert.ok(pairSection.indexOf("TP2") < pairSection.indexOf("TP10"));
 });
 
+test("two conductors in one bundle form a pair with stable member identities", () => {
+  const project = model.createEmptyProject("Bundle pairs");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  bundle.designator = "B1";
+  bundle.wireCount = 4;
+  bundle.wireLabels = ["DATA+", "DATA-", "AUX+", "AUX-"];
+  bundle.colors = ["BUWH", "WHBU", "GN", "YE"];
+  project.components.push(bundle);
+  const members = [
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+  ];
+  const pair = pairs.createTwistedPair(project, members);
+  pair.twistPitchMm = 20;
+  project.twistedPairs.push(pair);
+
+  assert.deepEqual(pair.members, members);
+  assert.equal(
+    pairs.findTwistedPairForBundleConductor(
+      project,
+      bundle.id,
+      bundle.conductorIds[0],
+    )?.id,
+    pair.id,
+  );
+  assert.equal(
+    pairs.getTwistedPairMemberDisplay(project, pair.members[0]),
+    "B1:DATA+",
+  );
+  assert.deepEqual(pairs.validateTwistedPairs(project), {
+    errors: [],
+    warnings: [],
+  });
+});
+
+test("bundle pairing rejects mixed, cross-bundle, duplicate, and already-paired members", () => {
+  const project = projectWithWires();
+  const first = model.makeComponent("bundle", 1, "bundle-a");
+  const second = model.makeComponent("bundle", 2, "bundle-b");
+  project.components.push(first, second);
+  const a1 = pairs.bundleConductorMember(first.id, first.conductorIds[0]);
+  const a2 = pairs.bundleConductorMember(first.id, first.conductorIds[1]);
+  const b1 = pairs.bundleConductorMember(second.id, second.conductorIds[0]);
+  assert.match(pairs.twistedPairCreationIssue(project, [a1, a1]), /itself/);
+  assert.match(
+    pairs.twistedPairCreationIssue(project, [a1, { kind: "wire", wireId: "wire-a" }]),
+    /standalone wires or two conductors/,
+  );
+  assert.match(pairs.twistedPairCreationIssue(project, [a1, b1]), /same bundle/);
+  project.twistedPairs.push(pairs.createTwistedPair(project, [a1, a2]));
+  assert.match(
+    pairs.twistedPairCreationIssue(project, [
+      a1,
+      pairs.bundleConductorMember(first.id, first.conductorIds[2]),
+    ]),
+    /already belongs/,
+  );
+});
+
+test("multiple bundle pairs coexist with a standalone pair without coupling labels or colors", () => {
+  const project = projectWithWires();
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  bundle.designator = "B1";
+  project.components.push(bundle);
+  project.twistedPairs.push(
+    pairs.createTwistedPair(project, ["wire-a", "wire-b"]),
+  );
+  const first = pairs.createTwistedPair(project, [
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+  ]);
+  project.twistedPairs.push(first);
+  const second = pairs.createTwistedPair(project, [
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[2]),
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[3]),
+  ]);
+  project.twistedPairs.push(second);
+  const memberSnapshot = structuredClone(project.twistedPairs.map((pair) => pair.members));
+  bundle.wireLabels = ["P+", "P-", "Q+", "Q-"];
+  bundle.colors = ["RD", "BK", "BUWH", "WHBU"];
+  assert.deepEqual(
+    project.twistedPairs.map((pair) => pair.members),
+    memberSnapshot,
+  );
+  assert.deepEqual(pairs.validateTwistedPairs(project).errors, []);
+  assert.deepEqual(
+    report
+      .buildHarnessReportModel(project, SAFE_SVG)
+      .twistedPairs.map((pair) => pair.designator),
+    ["TP1", "TP2", "TP3"],
+  );
+});
+
+test("bundle pair save/load and legacy standalone member migration are backward compatible", () => {
+  const project = model.createEmptyProject("Migration");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  project.components.push(bundle);
+  project.twistedPairs.push(
+    pairs.createTwistedPair(project, [
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+    ]),
+  );
+  const parsed = model.parseProjectFile(model.serializeProjectFile(project)).project;
+  assert.deepEqual(parsed.twistedPairs, project.twistedPairs);
+  assert.deepEqual(parsed.components[0].conductorIds, bundle.conductorIds);
+
+  const legacy = model.normalizeProject({
+    schemaVersion: 3,
+    title: "Legacy pair",
+    components: [wire("wire-a", "W1"), wire("wire-b", "W2")],
+    links: [],
+    twistedPairs: [{
+      id: "legacy-pair",
+      designator: "TP1",
+      members: ["wire-a", "wire-b"],
+      twistDirection: "unspecified",
+    }],
+  }).project;
+  assert.deepEqual(legacy.twistedPairs[0].members, [
+    { kind: "wire", wireId: "wire-a" },
+    { kind: "wire", wireId: "wire-b" },
+  ]);
+});
+
+test("bundle pair cloning remaps component and conductor identities without half-pairs", () => {
+  const project = model.createEmptyProject("Copy bundle");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  project.components.push(bundle);
+  const original = pairs.createTwistedPair(project, [
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+  ]);
+  const conductorMap = new Map([
+    [pairs.twistedPairMemberKey(original.members[0]), "copy-c1"],
+    [pairs.twistedPairMemberKey(original.members[1]), "copy-c2"],
+  ]);
+  const copies = pairs.cloneTwistedPairsForPaste(
+    [original],
+    new Map([[bundle.id, "bundle-copy"]]),
+    [original],
+    conductorMap,
+  );
+  assert.equal(copies.length, 1);
+  assert.deepEqual(copies[0].members, [
+    pairs.bundleConductorMember("bundle-copy", "copy-c1"),
+    pairs.bundleConductorMember("bundle-copy", "copy-c2"),
+  ]);
+  assert.notEqual(copies[0].id, original.id);
+  assert.deepEqual(
+    pairs.cloneTwistedPairsForPaste(
+      [original],
+      new Map([[bundle.id, "bundle-copy"]]),
+      [original],
+      new Map([[pairs.twistedPairMemberKey(original.members[0]), "copy-c1"]]),
+    ),
+    [],
+  );
+});
+
+test("deleting a bundle conductor removes its relationship and snapshots restore it", () => {
+  const project = model.createEmptyProject("Delete conductor");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  project.components.push(bundle);
+  project.twistedPairs.push(
+    pairs.createTwistedPair(project, [
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[2]),
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[3]),
+    ]),
+  );
+  const before = model.cloneProject(project);
+  project.twistedPairs = pairs.withoutTwistedPairsForConductorIds(
+    project.twistedPairs,
+    new Set(bundle.conductorIds.slice(2)),
+  );
+  bundle.conductorIds = bundle.conductorIds.slice(0, 2);
+  bundle.wireCount = 2;
+  assert.equal(project.twistedPairs.length, 0);
+  assert.equal(before.twistedPairs.length, 1);
+});
+
+test("bundle templates preserve local pairs and regenerate all internal IDs", () => {
+  const project = model.createEmptyProject("Library bundle");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  project.components.push(bundle);
+  const pair = pairs.createTwistedPair(project, [
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+    pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+  ]);
+  const template = library.componentToTemplate(bundle, "Paired bundle", [pair]);
+  const inserted = library.instantiateTemplateWithRelationships(template, 2);
+  assert.equal(inserted.twistedPairs.length, 1);
+  assert.notEqual(inserted.component.id, bundle.id);
+  assert.notDeepEqual(inserted.component.conductorIds, bundle.conductorIds);
+  assert.notEqual(inserted.twistedPairs[0].id, pair.id);
+  assert.ok(
+    inserted.twistedPairs[0].members.every(
+      (member) =>
+        member.kind === "bundle-conductor" &&
+        member.bundleId === inserted.component.id &&
+        inserted.component.conductorIds.includes(member.conductorId),
+    ),
+  );
+});
+
+test("HTML report includes bundle conductor detail and unified pair rows while BOM is unchanged", () => {
+  const project = model.createEmptyProject("Bundle report");
+  const bundle = model.makeComponent("bundle", 1, "bundle-a");
+  bundle.designator = "B1";
+  bundle.wireLabels = ["DATA+", "DATA-", "AUX+", "AUX-"];
+  project.components.push(bundle);
+  const beforeBom = bom.buildBomRows(project);
+  project.twistedPairs.push(
+    pairs.createTwistedPair(project, [
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+      pairs.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+    ]),
+  );
+  const value = report.buildHarnessReportModel(project, SAFE_SVG);
+  assert.equal(value.cables[0].conductors[0].twistedPair, "TP1 / B1:DATA-");
+  assert.equal(value.twistedPairs[0].wireA, "B1:DATA+");
+  assert.deepEqual(bom.buildBomRows(project), beforeBom);
+  const html = report.renderHarnessReportHtml(value);
+  assert.match(html, /Bundle Conductors/);
+  assert.match(html, /B1:DATA\+/);
+  const pdfDefinition = pdfReport.buildHarnessPdfDocument(value, {
+    includeDiagram: false,
+    includeImages: false,
+  });
+  const pdfText = JSON.stringify(pdfDefinition.content);
+  assert.match(pdfText, /Bundle Conductors/);
+  assert.match(pdfText, /B1:DATA\+/);
+});
+
 test("WireViz import does not infer pairs and export builder has no pair extension", async () => {
   const imported = wirevizImport.importWireVizYaml(`
 metadata:
@@ -220,5 +465,18 @@ cables:
     source.indexOf("function validateProject"),
   );
   assert.doesNotMatch(builder, /twistedPairs|twisted_pair|wire_groups/);
+});
+
+test("bundle inspector exposes conductor selection and pair editing through project history", async () => {
+  const source = await readFile(
+    new URL("../app/HarnessStudio.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /Select two unpaired conductors to create a twisted pair/);
+  assert.match(source, /findTwistedPairForBundleConductor/);
+  assert.match(source, /createPairFromBundleSelection/);
+  assert.match(source, /updateTwistedPair\(pair\.id/);
+  assert.match(source, /withoutTwistedPairsForConductorIds/);
+  assert.doesNotMatch(source, /twisted_pair\s*:/);
 });
 

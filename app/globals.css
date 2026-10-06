@@ -1436,6 +1436,27 @@ select:focus-visible {
   line-height: 1.4;
 }
 
+.bundle-conductor-pairs {
+  display: grid;
+  gap: 8px;
+}
+
+.bundle-conductor-table {
+  min-width: 520px;
+}
+
+.bundle-conductor-table input[type="checkbox"] {
+  min-width: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.bundle-conductor-pairs .twisted-pair-section {
+  padding-top: 9px;
+  border-top: 1px solid #dce3e2;
+}
+
 .additional-preset-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

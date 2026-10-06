@@ -34,6 +34,13 @@ import {
   getWireColorDisplay,
 } from "./wire-colors.ts";
 import {
+  findTwistedPairForBundleConductor,
+  findTwistedPairForWire,
+  getTwistedPairMemberDisplay,
+  resolveTwistedPairMember,
+  sameTwistedPairMember,
+} from "./twisted-pair.ts";
+import {
   getConnectorPinLabel,
   getConductorSignal,
 } from "./pin-labels.ts";
@@ -106,8 +113,16 @@ export interface ReportCable {
   to: string;
   notes: string;
   twistedPair: string;
+  conductors: ReportConductor[];
   additionalComponents: ReportCableAdditionalComponent[];
   approvedAlternatives: BomApprovedAlternative[];
+}
+
+export interface ReportConductor {
+  number: number;
+  label: string;
+  color: string;
+  twistedPair: string;
 }
 
 export interface ReportTwistedPair {
@@ -406,15 +421,11 @@ function buildCables(project: HarnessProject): ReportCable[] {
       const toEnd = uniqueNatural(
         ends.right.map((value) => value.split(":", 1)[0]),
       ).join(", ");
-      const pair = project.twistedPairs.find((candidate) =>
-        candidate.members.includes(component.id),
+      const pair = findTwistedPairForWire(project, component.id);
+      const ownMember = { kind: "wire" as const, wireId: component.id };
+      const counterpart = pair?.members.find(
+        (member) => !sameTwistedPairMember(member, ownMember),
       );
-      const counterpart = pair
-        ? project.components.find(
-            (candidate) =>
-              candidate.id === pair.members.find((member) => member !== component.id),
-          )
-        : undefined;
       return {
         designator: component.designator,
         kind: component.kind,
@@ -429,8 +440,42 @@ function buildCables(project: HarnessProject): ReportCable[] {
         to,
         notes: component.notes,
         twistedPair: pair
-          ? `${pair.designator || "Twisted pair"}${counterpart ? ` / ${counterpart.designator}` : " / missing wire"}`
+          ? `${pair.designator || "Twisted pair"}${counterpart ? ` / ${getTwistedPairMemberDisplay(project, counterpart)}` : " / missing member"}`
           : "",
+        conductors: Array.from(
+          { length: component.wireCount },
+          (_, conductorIndex) => {
+            const conductorId = component.conductorIds?.[conductorIndex];
+            const conductorPair =
+              component.kind === "bundle" && conductorId
+                ? findTwistedPairForBundleConductor(
+                    project,
+                    component.id,
+                    conductorId,
+                  )
+                : undefined;
+            const member = conductorId
+              ? {
+                  kind: "bundle-conductor" as const,
+                  bundleId: component.id,
+                  conductorId,
+                }
+              : undefined;
+            const other = conductorPair && member
+              ? conductorPair.members.find(
+                  (candidate) => !sameTwistedPairMember(candidate, member),
+                )
+              : undefined;
+            return {
+              number: conductorIndex + 1,
+              label: component.wireLabels[conductorIndex] ?? "",
+              color: component.colors[conductorIndex] ?? "",
+              twistedPair: conductorPair
+                ? `${conductorPair.designator}${other ? ` / ${getTwistedPairMemberDisplay(project, other)}` : ""}`
+                : "",
+            };
+          },
+        ),
         additionalComponents: (component.additionalComponents ?? []).map(
           (additional) => {
             const placement = additional.placement;
@@ -498,18 +543,16 @@ function buildTwistedPairs(project: HarnessProject): ReportTwistedPair[] {
   return [...project.twistedPairs]
     .sort((left, right) => naturalCompare(left.designator, right.designator))
     .map((pair) => {
-      const member = (index: number) => {
-        const id = pair.members[index];
-        return project.components.find((component) => component.id === id);
-      };
+      const member = (index: number) =>
+        resolveTwistedPairMember(project, pair.members[index]);
       const wireA = member(0);
       const wireB = member(1);
       return {
         designator: pair.designator,
-        wireA: wireA?.designator ?? pair.members[0] ?? "Missing wire",
-        wireAColor: wireA?.colors[0] ?? "",
-        wireB: wireB?.designator ?? pair.members[1] ?? "Missing wire",
-        wireBColor: wireB?.colors[0] ?? "",
+        wireA: wireA?.displayName ?? "Missing member",
+        wireAColor: wireA?.colorCode ?? "",
+        wireB: wireB?.displayName ?? "Missing member",
+        wireBColor: wireB?.colorCode ?? "",
         pitch:
           pair.twistPitchMm === undefined ? "" : `${pair.twistPitchMm} mm`,
         direction:
@@ -987,6 +1030,27 @@ function cableApprovedAlternativesSection(cable: ReportCable) {
   )}</article>`;
 }
 
+function cableConductorsSection(cable: ReportCable) {
+  if (cable.kind !== "bundle" || !cable.conductors.length) return "";
+  return `<article class="cable-components bundle-conductors"><h3>${escapeHtml(
+    cable.designator,
+  )} <span>Bundle Conductors</span></h3>${renderTable(
+    cable.conductors,
+    [
+      { heading: "Conductor", value: (row) => row.number, numeric: true },
+      { heading: "Label", value: (row) => row.label, optional: true },
+      {
+        heading: "Color",
+        value: (row) => row.color,
+        render: (row) => renderWireColorHtml(row.color),
+        optional: true,
+      },
+      { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
+    ],
+    "",
+  )}</article>`;
+}
+
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
 *{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
@@ -1043,16 +1107,16 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
   ];
   const twistedPairColumns: Array<TableColumn<ReportTwistedPair>> = [
     { heading: "Pair", value: (row) => row.designator },
-    { heading: "Wire A", value: (row) => row.wireA },
+    { heading: "Member A", value: (row) => row.wireA },
     {
-      heading: "Wire A color",
+      heading: "Member A color",
       value: (row) => row.wireAColor,
       render: (row) => renderWireColorHtml(row.wireAColor),
       optional: true,
     },
-    { heading: "Wire B", value: (row) => row.wireB },
+    { heading: "Member B", value: (row) => row.wireB },
     {
-      heading: "Wire B color",
+      heading: "Member B color",
       value: (row) => row.wireBColor,
       render: (row) => renderWireColorHtml(row.wireBColor),
       optional: true,
@@ -1140,7 +1204,7 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
       ? model.connectors.map(connectorSection).join("\n")
       : '<div class="report-section"><p class="empty">No connectors are defined.</p></div>'
   }</section>
-<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableApprovedAlternativesSection).join("")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
+<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableConductorsSection).join("")}${model.cables.map(cableApprovedAlternativesSection).join("")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
 <section class="report-section" id="twisted-pairs"><h2>Twisted Pairs</h2>${renderTable(model.twistedPairs, twistedPairColumns, "No twisted-pair relationships are defined.")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>

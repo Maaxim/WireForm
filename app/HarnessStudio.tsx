@@ -88,7 +88,7 @@ import {
   componentToTemplate,
   createLibrary,
   createLibraryCollection,
-  instantiateTemplate,
+  instantiateTemplateWithRelationships,
   mergeTemplates,
   normalizeLibraryCollection,
   parseLibraryFile,
@@ -105,6 +105,7 @@ import {
   PROJECT_SCHEMA_VERSION,
   cloneProject,
   componentGroup,
+  createConductorId,
   createEmptyProject,
   makeComponent,
   parseProjectFile,
@@ -155,10 +156,19 @@ import {
 } from "./wireviz-import";
 import {
   cloneTwistedPairsForPaste,
+  allocateTwistedPairDesignator,
+  bundleConductorMember,
   createTwistedPair,
+  findTwistedPairForBundleConductor,
   findTwistedPairForWire,
+  getTwistedPairMemberDisplay,
+  resolveTwistedPairMember,
+  sameTwistedPairMember,
+  twistedPairMemberComponentId,
+  twistedPairMemberKey,
   twistedPairCreationIssue,
   validateTwistedPairs,
+  withoutTwistedPairsForConductorIds,
   withoutTwistedPairsForMembers,
 } from "./twisted-pair";
 import {
@@ -298,6 +308,7 @@ function createStarterProject(): HarnessProject {
       wireCount: 0,
       pinLabels: ["V+", "CAN_H", "CAN_L"],
       wireLabels: [],
+      conductorIds: [],
       colors: [],
       gauge: "",
       length: "",
@@ -320,6 +331,11 @@ function createStarterProject(): HarnessProject {
       wireCount: 3,
       pinLabels: [],
       wireLabels: ["POWER", "CAN_H", "CAN_L"],
+      conductorIds: [
+        "cable-main-conductor-1",
+        "cable-main-conductor-2",
+        "cable-main-conductor-3",
+      ],
       colors: ["RD", "WHGN", "WHBU"],
       gauge: "22 AWG",
       length: "0.8 m",
@@ -342,6 +358,7 @@ function createStarterProject(): HarnessProject {
       wireCount: 0,
       pinLabels: ["V+", "CAN_H", "CAN_L"],
       wireLabels: [],
+      conductorIds: [],
       colors: [],
       gauge: "",
       length: "",
@@ -812,6 +829,9 @@ export function HarnessStudio() {
   const [selectedIds, setSelectedIds] = useState<string[]>([
     "connector-controller",
   ]);
+  const [selectedBundleConductorIds, setSelectedBundleConductorIds] = useState<
+    string[]
+  >([]);
   const [pendingPort, setPendingPort] = useState<PortRef | null>(null);
   const [zoom, setZoom] = useState(0.9);
   const [activeOutput, setActiveOutput] = useState<"preview" | "yaml">(
@@ -1026,6 +1046,7 @@ export function HarnessStudio() {
   const selectOnly = useCallback((id: string | null) => {
     setSelectedId(id);
     setSelectedIds(id ? [id] : []);
+    setSelectedBundleConductorIds([]);
   }, []);
 
   const copySelection = useCallback(() => {
@@ -1038,7 +1059,9 @@ export function HarnessStudio() {
         (link) => ids.has(link.from.nodeId) && ids.has(link.to.nodeId),
       ),
       twistedPairs: snapshot.twistedPairs.filter((pair) =>
-        pair.members.every((member) => ids.has(member)),
+        pair.members.every((member) =>
+          ids.has(twistedPairMemberComponentId(member)),
+        ),
       ),
     };
     pasteSequenceRef.current = 0;
@@ -1058,8 +1081,17 @@ export function HarnessStudio() {
     const offset = 30 + ((pasteSequenceRef.current - 1) % 5) * 14;
     const idPrefix = `copy-${Date.now().toString(36)}-${pasteSequenceRef.current}`;
     const idMap = new Map<string, string>();
+    const conductorIdMap = new Map<string, string>();
     clipboard.components.forEach((component, index) => {
       idMap.set(component.id, `${idPrefix}-${index}`);
+      component.conductorIds.forEach((conductorId) => {
+        conductorIdMap.set(
+          twistedPairMemberKey(
+            bundleConductorMember(component.id, conductorId),
+          ),
+          createConductorId(),
+        );
+      });
     });
 
     const usedDesignators = new Set(
@@ -1073,6 +1105,11 @@ export function HarnessStudio() {
       y: component.y + offset,
       pinLabels: [...component.pinLabels],
       wireLabels: [...component.wireLabels],
+      conductorIds: component.conductorIds.map((conductorId) =>
+        conductorIdMap.get(
+          twistedPairMemberKey(bundleConductorMember(component.id, conductorId)),
+        ) ?? createConductorId(),
+      ),
       colors: [...component.colors],
       additionalComponents: cloneAdditionalComponentsWithNewIds(
         component.additionalComponents,
@@ -1088,6 +1125,7 @@ export function HarnessStudio() {
       clipboard.twistedPairs,
       idMap,
       project.twistedPairs,
+      conductorIdMap,
     );
     const next = cloneProject(project);
     next.components.push(...pastedComponents);
@@ -1375,6 +1413,26 @@ export function HarnessStudio() {
     );
   };
 
+  const createPairFromBundleSelection = () => {
+    if (!selected || selected.kind !== "bundle") return;
+    const members = selectedBundleConductorIds.map((conductorId) =>
+      bundleConductorMember(selected.id, conductorId),
+    );
+    const issue = twistedPairCreationIssue(project, members);
+    if (issue) {
+      setNotice(issue);
+      return;
+    }
+    const pair = createTwistedPair(project, members);
+    updateProject(
+      (draft) => {
+        draft.twistedPairs.push(pair);
+      },
+      `${pair.designator} created from two conductors in ${selected.designator}.`,
+    );
+    setSelectedBundleConductorIds([]);
+  };
+
   const updateTwistedPair = (pairId: string, patch: Partial<TwistedPair>) => {
     updateProject((draft) => {
       const pair = draft.twistedPairs.find((candidate) => candidate.id === pairId);
@@ -1616,9 +1674,27 @@ export function HarnessStudio() {
         node.pinCount = nextCount;
         node.pinLabels = listForCount(node.pinLabels, nextCount, "");
       } else {
+        const removedConductorIds = new Set(node.conductorIds.slice(nextCount));
         node.wireCount = nextCount;
         node.wireLabels = listForCount(node.wireLabels, nextCount, "");
         node.colors = listForCount(node.colors, nextCount, "BK");
+        node.conductorIds = Array.from(
+          { length: nextCount },
+          (_, index) => node.conductorIds[index] ?? createConductorId(),
+        );
+        if (removedConductorIds.size) {
+          draft.twistedPairs = withoutTwistedPairsForConductorIds(
+            draft.twistedPairs,
+            removedConductorIds,
+            node.id,
+          );
+        }
+        if (node.kind === "wire" && nextCount !== 1) {
+          draft.twistedPairs = withoutTwistedPairsForMembers(
+            draft.twistedPairs,
+            new Set([node.id]),
+          );
+        }
       }
       draft.links = draft.links.filter((link) =>
         [link.from, link.to].every((port) => {
@@ -1631,6 +1707,12 @@ export function HarnessStudio() {
         }),
       );
     });
+    if (!CONNECTOR_KINDS.includes(selected.kind)) {
+      const retained = new Set(selected.conductorIds.slice(0, nextCount));
+      setSelectedBundleConductorIds((current) =>
+        current.filter((conductorId) => retained.has(conductorId)),
+      );
+    }
   };
 
   const addComponent = (kind: ComponentKind) => {
@@ -2109,7 +2191,9 @@ export function HarnessStudio() {
     const selectedSet = new Set(selectedIds);
     const templates = project.components
       .filter((component) => selectedSet.has(component.id))
-      .map((component) => componentToTemplate(component));
+      .map((component) =>
+        componentToTemplate(component, undefined, project.twistedPairs),
+      );
     const next = structuredClone(libraries);
     const library = next.libraries.find(
       (candidate) => candidate.id === next.activeLibraryId,
@@ -2130,7 +2214,11 @@ export function HarnessStudio() {
       selectedSet.has(component.id),
     );
     downloadText(
-      serializeTemplateSelection(`${project.title} selection`, components),
+      serializeTemplateSelection(
+        `${project.title} selection`,
+        components,
+        project.twistedPairs,
+      ),
       `${filenameFor(project.title)}-selection.wireviz-library.json`,
       "application/json;charset=utf-8",
     );
@@ -2290,7 +2378,11 @@ export function HarnessStudio() {
   };
 
   const addTemplateToCanvas = (template: ComponentTemplate) => {
-    const node = instantiateTemplate(template, project.components.length + 1);
+    const { component: node, twistedPairs } =
+      instantiateTemplateWithRelationships(
+        template,
+        project.components.length + 1,
+      );
     const used = new Set(
       project.components.map((component) => component.designator),
     );
@@ -2305,6 +2397,10 @@ export function HarnessStudio() {
     updateProject(
       (draft) => {
         draft.components.push(node);
+        for (const pair of twistedPairs) {
+          pair.designator = allocateTwistedPairDesignator(draft.twistedPairs);
+          draft.twistedPairs.push(pair);
+        }
       },
       `Added "${template.name}" from ${activeLibrary?.name ?? "the user library"}.`,
     );
@@ -2908,11 +3004,23 @@ export function HarnessStudio() {
                   const isSelected = selectedIdSet.has(node.id);
                   const rows = getNodeRows(node);
                   const twistedPair = findTwistedPairForWire(project, node.id);
-                  const pairedWire = twistedPair
-                    ? project.components.find(
-                        (component) =>
-                          component.id ===
-                          twistedPair.members.find((member) => member !== node.id),
+                  const bundlePairCount =
+                    node.kind === "bundle"
+                      ? project.twistedPairs.filter((pair) =>
+                          pair.members.some(
+                            (member) =>
+                              member.kind === "bundle-conductor" &&
+                              member.bundleId === node.id,
+                          ),
+                        ).length
+                      : 0;
+                  const pairedMember = twistedPair
+                    ? twistedPair.members.find(
+                        (member) =>
+                          !sameTwistedPairMember(member, {
+                            kind: "wire",
+                            wireId: node.id,
+                          }),
                       )
                     : undefined;
                   return (
@@ -2973,13 +3081,21 @@ export function HarnessStudio() {
                         {twistedPair && (
                           <span
                             className="twisted-pair-badge"
-                            title={`Paired with ${pairedWire?.designator ?? "missing wire"}`}
+                            title={`Paired with ${pairedMember ? getTwistedPairMemberDisplay(project, pairedMember) : "missing member"}`}
                           >
                             <Combine size={10} />
                             {twistedPair.designator || "Twisted pair"}
                             {twistedPair.twistPitchMm !== undefined
                               ? ` · ${twistedPair.twistPitchMm} mm`
                               : ""}
+                          </span>
+                        )}
+                        {!twistedPair && bundlePairCount > 0 && (
+                          <span
+                            className="twisted-pair-badge"
+                            title={`${bundlePairCount} twisted pair${bundlePairCount === 1 ? "" : "s"} in this bundle`}
+                          >
+                            <Combine size={10} /> {bundlePairCount} TP
                           </span>
                         )}
                       </div>
@@ -3503,11 +3619,16 @@ export function HarnessStudio() {
                   <div className="property-section twisted-pair-section">
                     <h3>Twisted pair</h3>
                     <p className="section-note">
-                      Paired with {project.components.find((component) =>
-                        component.id === selectedTwistedPair.members.find(
-                          (member) => member !== selected.id,
-                        ),
-                      )?.designator ?? "missing wire"}. Member wires remain independent.
+                      Paired with {getTwistedPairMemberDisplay(
+                        project,
+                        selectedTwistedPair.members.find(
+                          (member) =>
+                            !sameTwistedPairMember(member, {
+                              kind: "wire",
+                              wireId: selected.id,
+                            }),
+                        ) ?? selectedTwistedPair.members[0],
+                      )}. Member wires remain independent.
                     </p>
                     <Field label="Pair designator">
                       <input
@@ -3520,20 +3641,18 @@ export function HarnessStudio() {
                       />
                     </Field>
                     <div className="field-row">
-                      {selectedTwistedPair.members.slice(0, 2).map((memberId, index) => {
-                        const member = project.components.find(
-                          (component) => component.id === memberId,
-                        );
+                      {selectedTwistedPair.members.slice(0, 2).map((memberRef, index) => {
+                        const member = resolveTwistedPairMember(project, memberRef);
                         return (
                           <Field key={`${selectedTwistedPair.id}-${index}`} label={`Wire ${index === 0 ? "A" : "B"}`}>
                             <div className="paired-wire-color">
                               {member && (
-                                <WireColorSwatch code={member.colors[0] || "BK"} />
+                                <WireColorSwatch code={member.colorCode || "BK"} />
                               )}
                               <span>
                                 {member
-                                  ? `${member.designator} · ${getWireColorDisplay(member.colors[0] || "BK")}`
-                                  : "Missing wire"}
+                                  ? `${member.displayName} · ${getWireColorDisplay(member.colorCode || "BK")}`
+                                  : "Missing member"}
                               </span>
                             </div>
                           </Field>
@@ -3648,9 +3767,24 @@ export function HarnessStudio() {
                                     link.from.nodeId !== selected.id &&
                                     link.to.nodeId !== selected.id,
                                 );
+                                draft.twistedPairs = withoutTwistedPairsForMembers(
+                                  draft.twistedPairs,
+                                  new Set([selected.id]),
+                                );
                               });
                             } else {
-                              updateSelected(patch);
+                              updateProject((draft) => {
+                                const node = draft.components.find(
+                                  (component) => component.id === selected.id,
+                                );
+                                if (node) Object.assign(node, patch);
+                                if (kind !== selected.kind) {
+                                  draft.twistedPairs = withoutTwistedPairsForMembers(
+                                    draft.twistedPairs,
+                                    new Set([selected.id]),
+                                  );
+                                }
+                              });
                             }
                           }}
                         >
@@ -3807,21 +3941,216 @@ export function HarnessStudio() {
                       }
                     />
                   ) : (
-                    <Field label="Wire labels" hint="Comma separated, in order">
-                      <textarea
-                        rows={2}
-                        value={selected.wireLabels.join(", ")}
-                        onChange={(event) =>
-                          updateSelected({
-                            wireLabels: listForCount(
-                              csvValues(event.target.value),
-                              selected.wireCount,
-                              "",
+                    selected.kind === "bundle" ? (
+                      <div className="bundle-conductor-pairs">
+                        <p className="section-note">
+                          Select two unpaired conductors to create a twisted pair.
+                        </p>
+                        <div className="pin-label-table-wrap">
+                          <table className="pin-label-table bundle-conductor-table">
+                            <thead>
+                              <tr>
+                                <th aria-label="Select conductor" />
+                                <th>Conductor</th>
+                                <th>Label</th>
+                                <th>Color</th>
+                                <th>Twisted pair</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Array.from(
+                                { length: selected.wireCount },
+                                (_, index) => {
+                                  const conductorId = selected.conductorIds[index];
+                                  const pair = conductorId
+                                    ? findTwistedPairForBundleConductor(
+                                        project,
+                                        selected.id,
+                                        conductorId,
+                                      )
+                                    : undefined;
+                                  const ownRef = conductorId
+                                    ? bundleConductorMember(selected.id, conductorId)
+                                    : undefined;
+                                  const counterpart = pair && ownRef
+                                    ? pair.members.find(
+                                        (member) =>
+                                          !sameTwistedPairMember(member, ownRef),
+                                      )
+                                    : undefined;
+                                  return (
+                                    <tr key={conductorId ?? index}>
+                                      <td>
+                                        <input
+                                          type="checkbox"
+                                          aria-label={`Select conductor ${index + 1} for twisted pair`}
+                                          checked={
+                                            Boolean(conductorId) &&
+                                            selectedBundleConductorIds.includes(conductorId)
+                                          }
+                                          disabled={!conductorId || Boolean(pair)}
+                                          onChange={(event) => {
+                                            if (!conductorId) return;
+                                            setSelectedBundleConductorIds((current) =>
+                                              event.target.checked
+                                                ? [...current, conductorId].slice(-2)
+                                                : current.filter((id) => id !== conductorId),
+                                            );
+                                          }}
+                                        />
+                                      </td>
+                                      <td>{index + 1}</td>
+                                      <td>
+                                        <input
+                                          aria-label={`Conductor ${index + 1} label`}
+                                          value={selected.wireLabels[index] ?? ""}
+                                          onChange={(event) => {
+                                            const wireLabels = listForCount(
+                                              selected.wireLabels,
+                                              selected.wireCount,
+                                              "",
+                                            );
+                                            wireLabels[index] = event.target.value;
+                                            updateSelected({ wireLabels });
+                                          }}
+                                        />
+                                      </td>
+                                      <td>
+                                        <input
+                                          aria-label={`Conductor ${index + 1} color`}
+                                          value={selected.colors[index] ?? ""}
+                                          onChange={(event) => {
+                                            const colors = listForCount(
+                                              selected.colors,
+                                              selected.wireCount,
+                                              "BK",
+                                            );
+                                            colors[index] = event.target.value.toUpperCase();
+                                            updateSelected({ colors });
+                                          }}
+                                        />
+                                      </td>
+                                      <td>
+                                        {pair
+                                          ? `${pair.designator} / ${counterpart ? getTwistedPairMemberDisplay(project, counterpart) : "missing member"}`
+                                          : ""}
+                                      </td>
+                                    </tr>
+                                  );
+                                },
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <button
+                          type="button"
+                          className="twisted-pair-create"
+                          disabled={selectedBundleConductorIds.length !== 2}
+                          onClick={createPairFromBundleSelection}
+                        >
+                          <Combine size={14} /> Create twisted pair
+                        </button>
+                        {project.twistedPairs
+                          .filter((pair) =>
+                            pair.members.every(
+                              (member) =>
+                                member.kind === "bundle-conductor" &&
+                                member.bundleId === selected.id,
                             ),
-                          })
-                        }
-                      />
-                    </Field>
+                          )
+                          .map((pair) => (
+                            <div className="twisted-pair-section" key={pair.id}>
+                              <Field label="Pair designator">
+                                <input
+                                  value={pair.designator}
+                                  onChange={(event) =>
+                                    updateTwistedPair(pair.id, {
+                                      designator: event.target.value,
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <p className="section-note">
+                                {pair.members
+                                  .map((member) =>
+                                    getTwistedPairMemberDisplay(project, member),
+                                  )
+                                  .join(" + ")}
+                              </p>
+                              <div className="field-row">
+                                <Field label="Twist pitch" hint="mm">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="any"
+                                    value={pair.twistPitchMm ?? ""}
+                                    onChange={(event) =>
+                                      updateTwistedPair(pair.id, {
+                                        twistPitchMm: optionalNumber(
+                                          event.target.value,
+                                        ),
+                                      })
+                                    }
+                                    placeholder="Optional"
+                                  />
+                                </Field>
+                                <Field label="Direction">
+                                  <div className="select-wrap">
+                                    <select
+                                      value={pair.twistDirection}
+                                      onChange={(event) =>
+                                        updateTwistedPair(pair.id, {
+                                          twistDirection: event.target
+                                            .value as TwistedPair["twistDirection"],
+                                        })
+                                      }
+                                    >
+                                      <option value="unspecified">Unspecified</option>
+                                      <option value="S">S</option>
+                                      <option value="Z">Z</option>
+                                    </select>
+                                    <ChevronDown size={13} />
+                                  </div>
+                                </Field>
+                              </div>
+                              <Field label="Pair notes">
+                                <textarea
+                                  rows={2}
+                                  value={pair.note ?? ""}
+                                  onChange={(event) =>
+                                    updateTwistedPair(pair.id, {
+                                      note: event.target.value,
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <button
+                                type="button"
+                                className="twisted-pair-remove"
+                                onClick={() => removeTwistedPair(pair.id)}
+                              >
+                                <Trash2 size={13} /> Remove twisted pair
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <Field label="Wire labels" hint="Comma separated, in order">
+                        <textarea
+                          rows={2}
+                          value={selected.wireLabels.join(", ")}
+                          onChange={(event) =>
+                            updateSelected({
+                              wireLabels: listForCount(
+                                csvValues(event.target.value),
+                                selected.wireCount,
+                                "",
+                              ),
+                            })
+                          }
+                        />
+                      </Field>
+                    )
                   )}
 
                   {CONNECTOR_KINDS.includes(selected.kind) ? (

@@ -85,11 +85,14 @@ machine.
    Manufacturer part number, then add any validated substitutes under
    **Approved alternatives**. Alternatives are available for connectors,
    single wires, cables, and bundles and do not add BOM quantity.
-11. Shift-select exactly two unpaired, single-conductor **Wire** components and
-   choose **Create twisted pair** in the inspector. Each member inspector can
-   edit the pair designator, optional pitch, S/Z/unspecified direction, and
-   notes, or remove the relationship without deleting either wire. A wire may
-   belong to only one pair; unequal member lengths or gauges produce warnings.
+11. Create twisted pairs either by shift-selecting two independent,
+   single-conductor **Wire** components or by selecting two conductor rows in a
+   **Bundle** inspector. The pair editor supports a designator, optional pitch,
+   S/Z/unspecified direction, and notes. Each wire or bundle conductor can
+   belong to only one pair. Bundle conductor identities remain stable when
+   labels or colors change, and bundle templates preserve their local pairs.
+   Twisted-pair relationships are stored in `.wireform.json`, shown in HTML and
+   PDF reports, and intentionally omitted from standard WireViz YAML and BOMs.
 12. Choose **Harness notes** in the left panel to edit project-wide assembly and
    revision documentation. Notes do not require a component selection and are
    stored in the editable `.wireform.json` project.

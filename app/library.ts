@@ -1,11 +1,13 @@
 import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
+  createTwistedPairId,
   makeComponent,
   normalizeAdditionalComponents,
   normalizeApprovedPartAlternatives,
   type ComponentKind,
   type HarnessComponent,
+  type TwistedPair,
 } from "./model.ts";
 import { cloneAdditionalComponentsWithNewIds } from "./additional-components.ts";
 import {
@@ -23,6 +25,7 @@ export interface ComponentTemplate {
   id: string;
   name: string;
   component: Omit<HarnessComponent, "id" | "x" | "y">;
+  twistedPairs?: TwistedPair[];
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +85,7 @@ function now() {
 export function componentToTemplate(
   component: HarnessComponent,
   templateName = component.name || component.designator,
+  twistedPairs: readonly TwistedPair[] = [],
 ): ComponentTemplate {
   const {
     id: _id,
@@ -94,6 +98,21 @@ export function componentToTemplate(
     id: createId("template"),
     name: templateName.trim().slice(0, 240) || component.designator,
     component: templateComponent,
+    ...(component.kind === "bundle"
+      ? {
+          twistedPairs: structuredClone(
+            twistedPairs.filter(
+              (pair) =>
+                pair.members.length === 2 &&
+                pair.members.every(
+                  (member) =>
+                    member.kind === "bundle-conductor" &&
+                    member.bundleId === component.id,
+                ),
+            ),
+          ),
+        }
+      : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -233,6 +252,39 @@ function normalizedTemplate(
     ? normalizeApprovedPartAlternatives(componentSource.approvedAlternatives)
     : undefined;
   const timestamp = now();
+  const templatePairs: TwistedPair[] = Array.isArray(source.twistedPairs)
+    ? source.twistedPairs.flatMap((value, pairIndex) => {
+        const pair = recordValue(value);
+        if (!pair || !Array.isArray(pair.members) || pair.members.length !== 2) {
+          return [];
+        }
+        const members = pair.members.flatMap((member) => {
+          const ref = recordValue(member);
+          if (ref?.kind !== "bundle-conductor") return [];
+          const conductorId = textValue(ref.conductorId, "", 240);
+          return conductorId
+            ? [{
+                kind: "bundle-conductor" as const,
+                bundleId: textValue(ref.bundleId, "template-bundle", 240),
+                conductorId,
+              }]
+            : [];
+        });
+        if (members.length !== 2) return [];
+        const pitch = Number(pair.twistPitchMm);
+        return [{
+          id: textValue(pair.id, `template-pair-${pairIndex + 1}`, 240),
+          designator: textValue(pair.designator, `TP${pairIndex + 1}`, 160),
+          members,
+          ...(Number.isFinite(pitch) && pitch > 0 ? { twistPitchMm: pitch } : {}),
+          twistDirection:
+            pair.twistDirection === "S" || pair.twistDirection === "Z"
+              ? pair.twistDirection
+              : "unspecified",
+          ...(textValue(pair.note) ? { note: textValue(pair.note) } : {}),
+        }];
+      })
+    : [];
   return {
     id: textValue(source.id, createId("template"), 240),
     name: textValue(
@@ -256,6 +308,16 @@ function normalizedTemplate(
             .slice(0, wireCount)
             .map((label) => textValue(label, "", 300))
         : [],
+      conductorIds: Array.from({ length: wireCount }, (_, conductorIndex) => {
+        const values = Array.isArray(componentSource.conductorIds)
+          ? componentSource.conductorIds
+          : [];
+        return textValue(
+          values[conductorIndex],
+          `${base.id}-conductor-${conductorIndex + 1}`,
+          240,
+        );
+      }),
       colors: Array.isArray(componentSource.colors)
         ? componentSource.colors
             .slice(0, wireCount)
@@ -274,6 +336,7 @@ function normalizedTemplate(
       ...(additionalComponents ? { additionalComponents } : {}),
       ...(approvedAlternatives ? { approvedAlternatives } : {}),
     },
+    ...(templatePairs.length ? { twistedPairs: templatePairs } : {}),
     createdAt: textValue(source.createdAt, timestamp, 80),
     updatedAt: textValue(source.updatedAt, timestamp, 80),
   };
@@ -340,10 +403,11 @@ export function serializeLibrary(library: UserLibrary) {
 export function serializeTemplateSelection(
   name: string,
   components: HarnessComponent[],
+  twistedPairs: readonly TwistedPair[] = [],
 ) {
   const library = createLibrary(name);
   library.templates = components.map((component) =>
-    componentToTemplate(component),
+    componentToTemplate(component, undefined, twistedPairs),
   );
   return serializeLibrary(library);
 }
@@ -405,6 +469,13 @@ export function instantiateTemplate(
   template: ComponentTemplate,
   index: number,
 ): HarnessComponent {
+  return instantiateTemplateWithRelationships(template, index).component;
+}
+
+export function instantiateTemplateWithRelationships(
+  template: ComponentTemplate,
+  index: number,
+): { component: HarnessComponent; twistedPairs: TwistedPair[] } {
   const base = makeComponent(template.component.kind, index);
   const component = {
     ...base,
@@ -419,5 +490,33 @@ export function instantiateTemplate(
   component.approvedAlternatives = cloneApprovedAlternativesWithNewIds(
     component.approvedAlternatives,
   );
-  return component;
+  const oldConductorIds = [...component.conductorIds];
+  component.conductorIds = component.conductorIds.map(() => createId("conductor"));
+  const conductorIds = new Map(
+    oldConductorIds.map((id, conductorIndex) => [
+      id,
+      component.conductorIds[conductorIndex],
+    ]),
+  );
+  const twistedPairs = (template.twistedPairs ?? []).flatMap((pair) => {
+    const members = pair.members.flatMap((member) => {
+      if (member.kind !== "bundle-conductor") return [];
+      const conductorId = conductorIds.get(member.conductorId);
+      return conductorId
+        ? [{
+            kind: "bundle-conductor" as const,
+            bundleId: component.id,
+            conductorId,
+          }]
+        : [];
+    });
+    return members.length === 2
+      ? [{
+          ...structuredClone(pair),
+          id: createTwistedPairId(),
+          members,
+        }]
+      : [];
+  });
+  return { component, twistedPairs };
 }

@@ -123,7 +123,7 @@ test("report model maps metadata and naturally orders components", () => {
     revision: 'B "release"',
     company: "Müller & Söhne",
     notes: "",
-    schemaVersion: 3,
+    schemaVersion: 4,
   });
   assert.deepEqual(
     value.connectors.map((item) => item.designator),
@@ -200,6 +200,10 @@ test("multiconductor cable appears once with modeled length and endpoints", () =
       to: "X2:1, X2:2",
       notes: "Route away from motor",
       twistedPair: "",
+      conductors: [
+        { number: 1, label: "RD", color: "RD", twistedPair: "" },
+        { number: 2, label: "BK", color: "BK", twistedPair: "" },
+      ],
       additionalComponents: [],
       approvedAlternatives: [],
     },
