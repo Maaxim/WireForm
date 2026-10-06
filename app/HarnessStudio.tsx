@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,6 +35,7 @@ import {
   Library,
   Link2,
   LoaderCircle,
+  Maximize2,
   Minus,
   Network,
   Plus,
@@ -169,6 +171,21 @@ import {
   parseWireColor,
   validateWireColors,
 } from "./wire-colors";
+import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  boundsHeight,
+  boundsWidth,
+  fitBoundsToViewport,
+  getContentBounds,
+  getWorkspaceBounds,
+  screenDeltaToWorld,
+  unionBounds,
+  workspaceToWorld,
+  worldToWorkspace,
+  type Bounds,
+  type LayoutRect,
+} from "./workspace-bounds";
 
 interface ValidationResult {
   errors: string[];
@@ -220,8 +237,6 @@ const NODE_WIDTH = 224;
 const NODE_HEADER = 62;
 const ROW_HEIGHT = 32;
 const NODE_PHOTO_HEIGHT = 118;
-const CANVAS_WIDTH = 1480;
-const CANVAS_HEIGHT = 820;
 
 const KIND_META: Record<
   ComponentKind,
@@ -434,6 +449,15 @@ function getNodeHeight(node: HarnessComponent) {
     Math.max(getNodeRows(node), 1) * ROW_HEIGHT +
     12
   );
+}
+
+function componentLayoutRect(node: HarnessComponent): LayoutRect {
+  return {
+    x: node.x,
+    y: node.y,
+    width: NODE_WIDTH,
+    height: getNodeHeight(node),
+  };
 }
 
 function parsePortNumber(portId: string) {
@@ -811,6 +835,8 @@ export function HarnessStudio() {
     canRedo: false,
   });
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [dragWorkspaceBounds, setDragWorkspaceBounds] =
+    useState<Bounds | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
@@ -849,6 +875,11 @@ export function HarnessStudio() {
   const clipboardRef = useRef<ComponentClipboard | null>(null);
   const pasteSequenceRef = useRef(0);
   const dragDidMoveRef = useRef(false);
+  const canvasScrollRef = useRef<HTMLDivElement | null>(null);
+  const previousCanvasViewRef = useRef<{
+    bounds: Bounds;
+    zoom: number;
+  } | null>(null);
 
   const selected = project.components.find(
     (component) => component.id === selectedId,
@@ -901,6 +932,46 @@ export function HarnessStudio() {
       ),
     [project.harnessImages],
   );
+  const layoutRects = useMemo(
+    () => project.components.map(componentLayoutRect),
+    [project.components],
+  );
+  const contentBounds = useMemo(() => getContentBounds(layoutRects), [layoutRects]);
+  const calculatedWorkspaceBounds = useMemo(
+    () => getWorkspaceBounds(layoutRects),
+    [layoutRects],
+  );
+  const workspaceBounds = useMemo(
+    () =>
+      dragWorkspaceBounds
+        ? unionBounds(dragWorkspaceBounds, calculatedWorkspaceBounds)
+        : calculatedWorkspaceBounds,
+    [calculatedWorkspaceBounds, dragWorkspaceBounds],
+  );
+  const workspaceWidth = boundsWidth(workspaceBounds);
+  const workspaceHeight = boundsHeight(workspaceBounds);
+
+  useLayoutEffect(() => {
+    const viewport = canvasScrollRef.current;
+    if (!viewport) return;
+    const previous = previousCanvasViewRef.current;
+    if (!previous) {
+      viewport.scrollLeft = Math.max(0, -workspaceBounds.minX * zoom);
+      viewport.scrollTop = Math.max(0, -workspaceBounds.minY * zoom);
+    } else {
+      const worldCenterX =
+        previous.bounds.minX +
+        (viewport.scrollLeft + viewport.clientWidth / 2) / previous.zoom;
+      const worldCenterY =
+        previous.bounds.minY +
+        (viewport.scrollTop + viewport.clientHeight / 2) / previous.zoom;
+      viewport.scrollLeft =
+        (worldCenterX - workspaceBounds.minX) * zoom - viewport.clientWidth / 2;
+      viewport.scrollTop =
+        (worldCenterY - workspaceBounds.minY) * zoom - viewport.clientHeight / 2;
+    }
+    previousCanvasViewRef.current = { bounds: workspaceBounds, zoom };
+  }, [workspaceBounds, zoom]);
 
   const commitProject = useCallback(
     (next: HarnessProject, message?: string) => {
@@ -991,24 +1062,6 @@ export function HarnessStudio() {
       idMap.set(component.id, `${idPrefix}-${index}`);
     });
 
-    const minX = Math.min(...clipboard.components.map((component) => component.x));
-    const minY = Math.min(...clipboard.components.map((component) => component.y));
-    const maxX = Math.max(
-      ...clipboard.components.map((component) => component.x + NODE_WIDTH),
-    );
-    const maxY = Math.max(
-      ...clipboard.components.map(
-        (component) => component.y + getNodeHeight(component),
-      ),
-    );
-    const dx = Math.min(
-      CANVAS_WIDTH - 12 - maxX,
-      Math.max(12 - minX, offset),
-    );
-    const dy = Math.min(
-      CANVAS_HEIGHT - 12 - maxY,
-      Math.max(12 - minY, offset),
-    );
     const usedDesignators = new Set(
       project.components.map((component) => component.designator),
     );
@@ -1016,8 +1069,8 @@ export function HarnessStudio() {
       ...component,
       id: idMap.get(component.id) as string,
       designator: copiedDesignator(component.designator, usedDesignators),
-      x: component.x + dx,
-      y: component.y + dy,
+      x: component.x + offset,
+      y: component.y + offset,
       pinLabels: [...component.pinLabels],
       wireLabels: [...component.wireLabels],
       colors: [...component.colors],
@@ -1672,6 +1725,25 @@ export function HarnessStudio() {
     setPendingPort(null);
   };
 
+  const zoomToFit = () => {
+    const viewport = canvasScrollRef.current;
+    if (!viewport) return;
+    const targetBounds = contentBounds ?? workspaceBounds;
+    const fit = fitBoundsToViewport(
+      targetBounds,
+      viewport.clientWidth,
+      viewport.clientHeight,
+    );
+    setZoom(fit.zoom);
+    window.requestAnimationFrame(() => {
+      viewport.scrollLeft =
+        (fit.centerX - workspaceBounds.minX) * fit.zoom - viewport.clientWidth / 2;
+      viewport.scrollTop =
+        (fit.centerY - workspaceBounds.minY) * fit.zoom - viewport.clientHeight / 2;
+      previousCanvasViewRef.current = { bounds: workspaceBounds, zoom: fit.zoom };
+    });
+  };
+
   const onDragStart = (
     event: React.PointerEvent<HTMLDivElement>,
     node: HarnessComponent,
@@ -1690,6 +1762,7 @@ export function HarnessStudio() {
         ]),
     );
     dragDidMoveRef.current = false;
+    setDragWorkspaceBounds(calculatedWorkspaceBounds);
     setDrag({
       ids,
       startX: event.clientX,
@@ -1701,31 +1774,25 @@ export function HarnessStudio() {
 
   const onDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drag) return;
-    const rawDx = (event.clientX - drag.startX) / zoom;
-    const rawDy = (event.clientY - drag.startY) / zoom;
+    const rawDx = screenDeltaToWorld(event.clientX - drag.startX, zoom);
+    const rawDy = screenDeltaToWorld(event.clientY - drag.startY, zoom);
     if (Math.abs(rawDx) > 2 || Math.abs(rawDy) > 2) {
       dragDidMoveRef.current = true;
     }
-    const draggedNodes = drag.before.components.filter((component) =>
-      drag.ids.includes(component.id),
+    const movedComponents = project.components.map((component) =>
+      drag.origins[component.id]
+        ? {
+            ...component,
+            x: drag.origins[component.id].x + rawDx,
+            y: drag.origins[component.id].y + rawDy,
+          }
+        : component,
     );
-    const minX = Math.min(...draggedNodes.map((component) => component.x));
-    const minY = Math.min(...draggedNodes.map((component) => component.y));
-    const maxX = Math.max(
-      ...draggedNodes.map((component) => component.x + NODE_WIDTH),
+    const movedWorkspaceBounds = getWorkspaceBounds(
+      movedComponents.map(componentLayoutRect),
     );
-    const maxY = Math.max(
-      ...draggedNodes.map(
-        (component) => component.y + getNodeHeight(component),
-      ),
-    );
-    const dx = Math.min(
-      CANVAS_WIDTH - 12 - maxX,
-      Math.max(12 - minX, rawDx),
-    );
-    const dy = Math.min(
-      CANVAS_HEIGHT - 12 - maxY,
-      Math.max(12 - minY, rawDy),
+    setDragWorkspaceBounds((current) =>
+      unionBounds(current ?? calculatedWorkspaceBounds, movedWorkspaceBounds),
     );
     setProject((current) => ({
       ...current,
@@ -1733,8 +1800,8 @@ export function HarnessStudio() {
         drag.origins[component.id]
           ? {
               ...component,
-              x: drag.origins[component.id].x + dx,
-              y: drag.origins[component.id].y + dy,
+              x: drag.origins[component.id].x + rawDx,
+              y: drag.origins[component.id].y + rawDy,
             }
           : component,
       ),
@@ -1759,16 +1826,17 @@ export function HarnessStudio() {
       }, 0);
     }
     setDrag(null);
+    setDragWorkspaceBounds(null);
   };
 
   const canvasPoint = (
     event: React.PointerEvent<HTMLDivElement>,
   ): { x: number; y: number } => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return {
+    return workspaceToWorld({
       x: (event.clientX - bounds.left) / zoom,
       y: (event.clientY - bounds.top) / zoom,
-    };
+    }, workspaceBounds);
   };
 
   const onCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -2704,7 +2772,15 @@ export function HarnessStudio() {
               )}
               <button
                 className="icon-button light"
-                onClick={() => setZoom((value) => Math.max(0.55, value - 0.1))}
+                onClick={zoomToFit}
+                aria-label="Zoom to fit harness"
+                title="Zoom to fit harness"
+              >
+                <Maximize2 size={15} />
+              </button>
+              <button
+                className="icon-button light"
+                onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - 0.1))}
                 aria-label="Zoom out"
               >
                 <ZoomOut size={16} />
@@ -2712,7 +2788,7 @@ export function HarnessStudio() {
               <span className="zoom-value">{Math.round(zoom * 100)}%</span>
               <button
                 className="icon-button light"
-                onClick={() => setZoom((value) => Math.min(1.25, value + 0.1))}
+                onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + 0.1))}
                 aria-label="Zoom in"
               >
                 <ZoomIn size={16} />
@@ -2720,21 +2796,25 @@ export function HarnessStudio() {
             </div>
           </div>
 
-          <div className="canvas-scroll">
+          <div className="canvas-scroll" ref={canvasScrollRef}>
             <div
               className="canvas-zoom"
               style={{
-                width: CANVAS_WIDTH * zoom,
-                height: CANVAS_HEIGHT * zoom,
+                width: workspaceWidth * zoom,
+                height: workspaceHeight * zoom,
               }}
             >
               <div
                 className="canvas"
                 style={{
-                  width: CANVAS_WIDTH,
-                  height: CANVAS_HEIGHT,
+                  width: workspaceWidth,
+                  height: workspaceHeight,
                   transform: `scale(${zoom})`,
                 }}
+                data-workspace-min-x={workspaceBounds.minX}
+                data-workspace-min-y={workspaceBounds.minY}
+                data-workspace-max-x={workspaceBounds.maxX}
+                data-workspace-max-y={workspaceBounds.maxY}
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
@@ -2742,8 +2822,8 @@ export function HarnessStudio() {
               >
                 <svg
                   className="link-layer"
-                  width={CANVAS_WIDTH}
-                  height={CANVAS_HEIGHT}
+                  width={workspaceWidth}
+                  height={workspaceHeight}
                   aria-label="Harness connections"
                 >
                   {project.links.map((link) => {
@@ -2754,8 +2834,14 @@ export function HarnessStudio() {
                       (node) => node.id === link.to.nodeId,
                     );
                     if (!fromNode || !toNode) return null;
-                    const from = nodePoint(fromNode, link.from);
-                    const to = nodePoint(toNode, link.to);
+                    const from = worldToWorkspace(
+                      nodePoint(fromNode, link.from),
+                      workspaceBounds,
+                    );
+                    const to = worldToWorkspace(
+                      nodePoint(toNode, link.to),
+                      workspaceBounds,
+                    );
                     const bend = Math.max(60, Math.abs(to.x - from.x) * 0.44);
                     const direction = to.x >= from.x ? 1 : -1;
                     const cableNode = CABLE_KINDS.includes(fromNode.kind)
@@ -2836,8 +2922,8 @@ export function HarnessStudio() {
                         isSelected ? "selected" : ""
                       }`}
                       style={{
-                        left: node.x,
-                        top: node.y,
+                        left: node.x - workspaceBounds.minX,
+                        top: node.y - workspaceBounds.minY,
                         width: NODE_WIDTH,
                         height: getNodeHeight(node),
                       }}
@@ -3068,8 +3154,12 @@ export function HarnessStudio() {
                   <div
                     className="selection-marquee"
                     style={{
-                      left: Math.min(marquee.startX, marquee.currentX),
-                      top: Math.min(marquee.startY, marquee.currentY),
+                      left:
+                        Math.min(marquee.startX, marquee.currentX) -
+                        workspaceBounds.minX,
+                      top:
+                        Math.min(marquee.startY, marquee.currentY) -
+                        workspaceBounds.minY,
                       width: Math.abs(marquee.currentX - marquee.startX),
                       height: Math.abs(marquee.currentY - marquee.startY),
                     }}

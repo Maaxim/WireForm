@@ -177,6 +177,7 @@ const MAX_PHOTO_DATA_LENGTH = 4_000_000;
 const MAX_HARNESS_IMAGES = 40;
 const MAX_HARNESS_IMAGE_DATA_LENGTH = 16_000_000;
 const MAX_HARNESS_IMAGE_TOTAL_DATA_LENGTH = 60_000_000;
+const MAX_LAYOUT_COORDINATE = 1_000_000;
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -586,8 +587,18 @@ function normalizeComponent(
     id,
     designator: textValue(source.designator, base.designator, 160),
     name: textValue(source.name, base.name, 500),
-    x: numberValue(source.x, base.x, 0, 20_000),
-    y: numberValue(source.y, base.y, 0, 20_000),
+    x: numberValue(
+      source.x,
+      base.x,
+      -MAX_LAYOUT_COORDINATE,
+      MAX_LAYOUT_COORDINATE,
+    ),
+    y: numberValue(
+      source.y,
+      base.y,
+      -MAX_LAYOUT_COORDINATE,
+      MAX_LAYOUT_COORDINATE,
+    ),
     pinCount,
     wireCount,
     pinLabels: stringList(source.pinLabels).slice(0, pinCount),

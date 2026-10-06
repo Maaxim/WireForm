@@ -13,6 +13,8 @@ machine.
 
 - Draggable topology canvas with connectors, cables, individual wires, bundles,
   splices, and junctions
+- Auto-growing workspace bounds with signed world coordinates, pannable large
+  layouts, and content-based Zoom to Fit
 - Explicit pin and conductor terminations
 - Editable connector pin labels that keep the numeric physical pin identity stable
 - Per-wire-end contact, seal, strip-length, tooling, and termination notes
@@ -60,7 +62,9 @@ machine.
 3. Select one port and then a compatible port to connect them.
 4. Drag on empty canvas space to select several components. Drag any selected
    header to move the group; use <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>C</kbd> and
-   <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd> to copy and paste.
+   <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd> to copy and paste. The workspace
+   expands automatically as components move in any direction; use **Zoom to
+   fit harness** in the canvas toolbar to frame the complete layout.
 5. Optionally upload a connector photo from the connector inspector. WireForm
    resizes it locally and embeds it in the editable project, user-library
    templates, topology canvas, and local WireViz preview.
