@@ -1,5 +1,5 @@
 import { instance, type Viz } from "@viz-js/viz";
-import { addWireFormDiagramIdsToDot } from "./diagram-annotations.ts";
+import { prepareHarnessDiagramDot } from "./diagram-annotations.ts";
 import {
   PYODIDE_VERSION,
   PYTHON_GRAPHVIZ_WHEEL_PATH,
@@ -195,7 +195,7 @@ wireform_harness.graph.source
       pyodide.globals.delete("WIREFORM_DOCUMENT");
     }
 
-    const diagramDot = addWireFormDiagramIdsToDot(dot);
+    const diagramDot = prepareHarnessDiagramDot(dot);
     let svg = viz.renderString(diagramDot, {
       engine: "dot",
       format: "svg",

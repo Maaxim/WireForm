@@ -49,6 +49,7 @@ interface SvgGroup {
 
 const NUMBER_PATTERN = /-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?/gi;
 const ENTRY_LABEL_OFFSET = 20;
+export const HARNESS_DIAGRAM_HORIZONTAL_RANK_SEPARATION = 6;
 
 function escapeXml(value: string) {
   return value
@@ -264,6 +265,18 @@ export function encodeDiagramKey(value: string) {
     .join("_");
 }
 
+/**
+ * WireViz uses a left-to-right graph with ranksep=2. In that orientation,
+ * ranksep controls the horizontal gap between component ranks while nodesep
+ * controls vertical spacing within a rank. Keep the latter untouched.
+ */
+export function applyHarnessDiagramLayout(dot: string) {
+  return dot.replace(
+    /(^\s*graph\s*\[[^\]\r\n]*\branksep\s*=\s*)(?:"[^"]*"|[^\s\]]+)/m,
+    `$1${HARNESS_DIAGRAM_HORIZONTAL_RANK_SEPARATION}`,
+  );
+}
+
 function decodeDotIdentifier(value: string) {
   const trimmed = value.trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
@@ -299,6 +312,11 @@ export function addWireFormDiagramIdsToDot(dot: string) {
       return `${line} [id="wireform-member-${memberKey}-${occurrence}"]`;
     })
     .join("\n");
+}
+
+/** Applies WireForm's shared layout and identity metadata before Graphviz. */
+export function prepareHarnessDiagramDot(dot: string) {
+  return addWireFormDiagramIdsToDot(applyHarnessDiagramLayout(dot));
 }
 
 function nodeGeometry(groups: readonly SvgGroup[], designator: string) {

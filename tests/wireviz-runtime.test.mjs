@@ -6,12 +6,42 @@ import { instance } from "@viz-js/viz";
 import { loadPyodide } from "pyodide";
 import vendorManifest from "../vendor/manifest.json" with { type: "json" };
 
-const { addWireFormDiagramIdsToDot, getTwistedPairAnnotationGeometry } = await import(
-  "../app/diagram-annotations.ts"
-);
+const {
+  getTwistedPairAnnotationGeometry,
+  prepareHarnessDiagramDot,
+} = await import("../app/diagram-annotations.ts");
 const { prepareHarnessDiagramSvg } = await import("../app/html-report.ts");
 const model = await import("../app/model.ts");
 const twistedPair = await import("../app/twisted-pair.ts");
+
+function graphvizNodeBounds(svg, title) {
+  const group = [...svg.matchAll(/<g\b[^>]*class="node"[^>]*>([\s\S]*?)<\/g>/g)].find(
+    (match) => match[1].includes(`<title>${title}</title>`),
+  );
+  const points = group?.[1].match(/<polygon\b[^>]*points="([^"]+)"/)?.[1];
+  assert.ok(points, `Missing Graphviz node polygon for ${title}`);
+  const values = [...points.matchAll(/-?(?:\d+(?:\.\d*)?|\.\d+)/g)].map((match) =>
+    Number(match[0]),
+  );
+  const xs = values.filter((_value, index) => index % 2 === 0);
+  const ys = values.filter((_value, index) => index % 2 === 1);
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
+function svgViewBox(svg) {
+  const values = svg
+    .match(/viewBox="([^"]+)"/)?.[1]
+    .trim()
+    .split(/\s+/)
+    .map(Number);
+  assert.equal(values?.length, 4);
+  return values;
+}
 
 test(
   "vendored WireViz produces DOT that GraphViz WASM renders",
@@ -119,14 +149,34 @@ harness.graph.source
     assert.match(dot, /#ffffff:#0066ff:#ffffff/);
 
     const viz = await instance();
-    const diagramDot = addWireFormDiagramIdsToDot(dot);
+    assert.match(dot, /rankdir=LR/);
+    assert.match(dot, /ranksep=2/);
+    assert.match(dot, /nodesep=0\.33/);
+    const diagramDot = prepareHarnessDiagramDot(dot);
+    assert.match(diagramDot, /ranksep=6/);
+    assert.match(diagramDot, /nodesep=0\.33/);
     assert.match(diagramDot, /id="wireform-member-57_31-1-1"/);
     assert.match(diagramDot, /id="wireform-member-57_31-2-1"/);
-    let svg = viz.renderString(diagramDot, {
+    const renderOptions = {
       engine: "dot",
       format: "svg",
       images: [{ name: imagePath, width: 80, height: 60 }],
-    });
+    };
+    const baselineSvg = viz.renderString(dot, renderOptions);
+    let svg = viz.renderString(diagramDot, renderOptions);
+    const baselineJ1 = graphvizNodeBounds(baselineSvg, "J1");
+    const baselineW1 = graphvizNodeBounds(baselineSvg, "W1");
+    const spacedJ1 = graphvizNodeBounds(svg, "J1");
+    const spacedW1 = graphvizNodeBounds(svg, "W1");
+    const baselineGap = baselineW1.minX - baselineJ1.maxX;
+    const spacedGap = spacedW1.minX - spacedJ1.maxX;
+    assert.ok(Math.abs(spacedGap / baselineGap - 3) < 0.05);
+    assert.deepEqual(
+      [spacedJ1.minY, spacedJ1.maxY, spacedW1.minY, spacedW1.maxY],
+      [baselineJ1.minY, baselineJ1.maxY, baselineW1.minY, baselineW1.maxY],
+    );
+    assert.ok(svgViewBox(svg)[2] > svgViewBox(baselineSvg)[2]);
+    assert.equal(svgViewBox(svg)[3], svgViewBox(baselineSvg)[3]);
     svg = svg.split(imagePath).join(imageDataUrl);
     assert.match(svg, /<svg\b/);
     assert.match(svg, />J1</);

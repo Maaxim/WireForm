@@ -267,6 +267,19 @@ test("DOT post-processing assigns stable conductor IDs without changing edge end
   assert.equal(annotations.addWireFormDiagramIdsToDot(dot), result);
 });
 
+test("shared Graphviz layout triples horizontal rank spacing without changing vertical spacing", () => {
+  const dot = `graph harness {
+  graph [bgcolor="#ffffff" nodesep=0.33 rankdir=LR ranksep=2]
+  A -- B
+}`;
+  const result = annotations.applyHarnessDiagramLayout(dot);
+  assert.equal(annotations.HARNESS_DIAGRAM_HORIZONTAL_RANK_SEPARATION, 6);
+  assert.match(result, /ranksep=6/);
+  assert.match(result, /nodesep=0\.33/);
+  assert.equal(result.replace("ranksep=6", "ranksep=2"), dot);
+  assert.equal(annotations.applyHarnessDiagramLayout(result), result);
+});
+
 test("shared report preparation gives HTML and PDF the exact same annotated SVG", () => {
   const project = standaloneProject();
   const report = htmlReport.buildHarnessReportModel(project, diagram());
@@ -313,7 +326,7 @@ test("worker and live preview are wired to the shared annotation pipeline", asyn
   const workerSource = await readFile(new URL("../app/preview.worker.ts", import.meta.url), "utf8");
   const studioSource = await readFile(new URL("../app/HarnessStudio.tsx", import.meta.url), "utf8");
   const pdfSource = await readFile(new URL("../app/pdf-report.ts", import.meta.url), "utf8");
-  assert.match(workerSource, /addWireFormDiagramIdsToDot\(dot\)/);
+  assert.match(workerSource, /prepareHarnessDiagramDot\(dot\)/);
   assert.match(studioSource, /prepareHarnessDiagramSvg\(project, previewSvg\)/);
   assert.doesNotMatch(pdfSource, /addTwistedPairAnnotations|wireform-twisted-pair-marker/);
 });
