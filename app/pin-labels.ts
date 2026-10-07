@@ -49,6 +49,11 @@ export function getPinTraceLabel(connector: HarnessComponent, pin: number) {
   return label ? `${label} (pin ${pin})` : `Pin ${pin}`;
 }
 
+export function getPinReportLabel(connector: HarnessComponent, pin: number) {
+  const label = getConnectorPinLabel(connector, pin);
+  return label ? `${pin} (${label})` : String(pin);
+}
+
 function portOrdinal(portId: string) {
   const match = /^(?:pin|wire):(\d+)$/.exec(portId);
   return match ? Number(match[1]) : undefined;

@@ -1,4 +1,5 @@
 import type {
+  Column,
   Content,
   Size,
   TableCell,
@@ -25,6 +26,7 @@ import {
   type ReportTermination,
   type ReportTwistedPair,
 } from "./html-report.ts";
+import type { ReportConnectionMappingRow } from "./connection-mapping.ts";
 import { PDF_COLORS, PDF_STYLES, PDF_TABLE_LAYOUT } from "./pdf-styles.ts";
 import {
   getWireColorDisplay,
@@ -150,33 +152,56 @@ function alternativesTable(alternatives: readonly BomApprovedAlternative[]): Con
   ];
 }
 
-export function pdfWireColorCell(code: string): Content {
+export function pdfWireColorSwatch(code: string): Column {
   const parsed = parseWireColor(code);
   const primary = parsed.primary?.hex ?? "#70808c";
   const secondary = parsed.secondary?.hex;
   return {
-    columns: [
+    width: 28,
+    canvas: [
+      { type: "rect", x: 0, y: 1, w: 25, h: 9, color: primary },
+      ...(secondary
+        ? [{ type: "rect" as const, x: 0, y: 4, w: 25, h: 3, color: secondary }]
+        : []),
       {
-        width: 28,
-        canvas: [
-          { type: "rect", x: 0, y: 1, w: 25, h: 9, color: primary },
-          ...(secondary
-            ? [{ type: "rect" as const, x: 0, y: 4, w: 25, h: 3, color: secondary }]
-            : []),
-          {
-            type: "rect",
-            x: 0,
-            y: 1,
-            w: 25,
-            h: 9,
-            lineColor: "#66777e",
-            lineWidth: 0.6,
-          },
-        ],
+        type: "rect",
+        x: 0,
+        y: 1,
+        w: 25,
+        h: 9,
+        lineColor: "#66777e",
+        lineWidth: 0.6,
       },
+    ],
+  };
+}
+
+export function pdfWireColorCell(code: string): Content {
+  return {
+    columns: [
+      pdfWireColorSwatch(code),
       {
         width: "*",
         text: getWireColorDisplay(code),
+        style: "tableCell",
+      },
+    ],
+    columnGap: 3,
+  };
+}
+
+function pdfConnectionMappingConductorCell(
+  row: ReportConnectionMappingRow,
+): Content {
+  if (!row.conductor.colorCode) {
+    return { text: row.conductor.display, style: "tableCell" };
+  }
+  return {
+    columns: [
+      pdfWireColorSwatch(row.conductor.colorCode),
+      {
+        width: "*",
+        text: row.conductor.display,
         style: "tableCell",
       },
     ],
@@ -319,6 +344,26 @@ const CABLE_COLUMNS: Array<PdfColumn<ReportCable>> = [
   { heading: "From", value: (row) => row.from, optional: true },
   { heading: "To", value: (row) => row.to, optional: true },
   { heading: "Notes", value: (row) => row.notes, optional: true },
+];
+
+const CONNECTION_MAPPING_COLUMNS: Array<
+  PdfColumn<ReportConnectionMappingRow>
+> = [
+  { heading: "From", value: (row) => row.from.connectorDesignator, width: 48 },
+  { heading: "Pin", value: (row) => row.from.pinDisplay, width: 55 },
+  {
+    heading: "Wire / Conductor",
+    value: (row) => row.conductor.display,
+    cell: (row) => pdfConnectionMappingConductorCell(row),
+    width: "*",
+  },
+  {
+    heading: "TP",
+    value: (row) => row.twistedPair?.designator ?? "",
+    width: 38,
+  },
+  { heading: "To", value: (row) => row.to.connectorDesignator, width: 55 },
+  { heading: "Pin", value: (row) => row.to.pinDisplay, width: 90 },
 ];
 
 const CONDUCTOR_COLUMNS: Array<PdfColumn<ReportConductor>> = [
@@ -519,6 +564,23 @@ export function buildHarnessPdfDocument(
           text: "The harness diagram could not be embedded in this PDF.",
           style: "empty",
         },
+  );
+
+  content.push({
+    ...heading("Connection Mapping", "before"),
+    pageOrientation: "portrait",
+  });
+  content.push({
+    text: "From/To indicates deterministic report ordering and does not imply electrical signal direction.",
+    style: "smallText",
+    margin: [0, 0, 0, 8],
+  });
+  content.push(
+    table(
+      model.connectionMapping,
+      CONNECTION_MAPPING_COLUMNS,
+      "No physical conductors are defined.",
+    ),
   );
 
   content.push({

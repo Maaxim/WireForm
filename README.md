@@ -198,6 +198,15 @@ printing or rasterizing HTML. The WireViz diagram is passed to pdfmake as SVG so
 it remains vector-based where supported. The PDF engine and bundled Roboto font
 data are lazy-loaded only when PDF export is requested.
 
+HTML and PDF reports include a **Connection Mapping** overview immediately
+after the Harness Diagram. It is derived from the authoritative project
+topology and is not manually maintained. Each physical standalone wire or
+cable/bundle conductor appears once, with both physical connector pins, an
+optional pin label in parentheses, conductor identification and color code, and
+the twisted-pair designator when applicable. One-ended and unused conductors
+are shown as `OPEN`; From/To is deterministic report ordering and does not imply
+electrical signal direction.
+
 Harness Notes are user-authored documentation for the complete project. They
 are autosaved, included in project JSON, and rendered as escaped plain text in
 the HTML report with line breaks preserved. Validation is an
