@@ -33,6 +33,7 @@ import {
   getWireColorCssBackground,
   getWireColorDisplay,
 } from "./wire-colors.ts";
+import { addTwistedPairAnnotations } from "./diagram-annotations.ts";
 import {
   findTwistedPairForBundleConductor,
   findTwistedPairForWire,
@@ -690,6 +691,7 @@ const SVG_ATTRIBUTES = new Set([
   "fill-opacity",
   "stroke-opacity",
   "href",
+  "data-pair-id",
 ]);
 
 function safeSvgHref(value: string) {
@@ -826,7 +828,7 @@ export function buildHarnessReportModel(
       notes: project.notes ?? "",
       schemaVersion: project.schemaVersion,
     },
-    diagramSvg: sanitizeDiagramSvg(diagramSvg),
+    diagramSvg: prepareHarnessDiagramSvg(project, diagramSvg),
     connectors: buildConnectors(project),
     cables: buildCables(project),
     twistedPairs: buildTwistedPairs(project),
@@ -834,6 +836,14 @@ export function buildHarnessReportModel(
     bomRows: buildBomRows(project),
     harnessImages: buildHarnessImages(project),
   };
+}
+
+export function prepareHarnessDiagramSvg(
+  project: HarnessProject,
+  diagramSvg: string,
+) {
+  const sanitized = sanitizeDiagramSvg(diagramSvg);
+  return sanitizeDiagramSvg(addTwistedPairAnnotations(sanitized, project));
 }
 
 interface TableColumn<Row> {

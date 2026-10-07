@@ -6,6 +6,13 @@ import { instance } from "@viz-js/viz";
 import { loadPyodide } from "pyodide";
 import vendorManifest from "../vendor/manifest.json" with { type: "json" };
 
+const { addWireFormDiagramIdsToDot, getTwistedPairAnnotationGeometry } = await import(
+  "../app/diagram-annotations.ts"
+);
+const { prepareHarnessDiagramSvg } = await import("../app/html-report.ts");
+const model = await import("../app/model.ts");
+const twistedPair = await import("../app/twisted-pair.ts");
+
 test(
   "vendored WireViz produces DOT that GraphViz WASM renders",
   { timeout: 60_000 },
@@ -112,7 +119,10 @@ harness.graph.source
     assert.match(dot, /#ffffff:#0066ff:#ffffff/);
 
     const viz = await instance();
-    let svg = viz.renderString(dot, {
+    const diagramDot = addWireFormDiagramIdsToDot(dot);
+    assert.match(diagramDot, /id="wireform-member-57_31-1-1"/);
+    assert.match(diagramDot, /id="wireform-member-57_31-2-1"/);
+    let svg = viz.renderString(diagramDot, {
       engine: "dot",
       format: "svg",
       images: [{ name: imagePath, width: 80, height: 60 }],
@@ -124,6 +134,42 @@ harness.graph.source
     assert.match(svg, /data:image\/png;base64/);
     assert.match(svg, /#0066ff/);
     assert.match(svg, /#ffffff/);
+    assert.match(svg, /id="wireform&#45;member&#45;57_31&#45;1&#45;1"/);
+    assert.match(svg, /id="wireform&#45;member&#45;57_31&#45;2&#45;1"/);
+
+    const project = model.createEmptyProject("Runtime annotation test");
+    const bundle = model.makeComponent("bundle", 2, "runtime-bundle");
+    bundle.designator = "W1";
+    bundle.colors = ["BUWH", "WHBU"];
+    project.components.push(bundle);
+    project.twistedPairs.push({
+      id: "runtime-pair",
+      designator: "TP1",
+      members: [
+        twistedPair.bundleConductorMember(bundle.id, bundle.conductorIds[0]),
+        twistedPair.bundleConductorMember(bundle.id, bundle.conductorIds[1]),
+      ],
+      twistDirection: "unspecified",
+    });
+    const markerGeometry = getTwistedPairAnnotationGeometry(
+      project.twistedPairs[0],
+      svg,
+      project,
+    );
+    assert.equal(markerGeometry.markers.length, 2);
+    assert.ok(markerGeometry.markers.every((marker) => marker.source === "conductor"));
+    assert.equal(
+      new Set(markerGeometry.markers.map((marker) => `${marker.point.x},${marker.point.y}`)).size,
+      2,
+    );
+    const annotatedSvg = prepareHarnessDiagramSvg(project, svg);
+    assert.equal(
+      (annotatedSvg.match(/class="wireform-twisted-pair-marker"/g) ?? []).length,
+      2,
+    );
+    assert.equal((annotatedSvg.match(/>TP1<\/text>/g) ?? []).length, 2);
+    assert.match(annotatedSvg, /stroke="#0066ff"/);
+    assert.match(annotatedSvg, /stroke="#ffffff"/);
 
     pythonDocument.destroy?.();
   },

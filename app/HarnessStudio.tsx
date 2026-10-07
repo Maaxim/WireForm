@@ -76,6 +76,7 @@ import {
 import {
   buildHarnessReportModel,
   htmlReportFilenameForTitle,
+  prepareHarnessDiagramSvg,
   renderHarnessReportHtml,
 } from "./html-report";
 import {
@@ -2546,8 +2547,12 @@ export function HarnessStudio() {
     replaceProject(next, "Example harness restored.", true);
   };
 
-  const previewDataUri = previewSvg
-    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(previewSvg)}`
+  const displayPreviewSvg = useMemo(
+    () => (previewSvg ? prepareHarnessDiagramSvg(project, previewSvg) : ""),
+    [previewSvg, project],
+  );
+  const previewDataUri = displayPreviewSvg
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(displayPreviewSvg)}`
     : "";
 
   return (

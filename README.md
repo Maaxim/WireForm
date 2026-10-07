@@ -91,6 +91,9 @@ machine.
    S/Z/unspecified direction, and notes. Each wire or bundle conductor can
    belong to only one pair. Bundle conductor identities remain stable when
    labels or colors change, and bundle templates preserve their local pairs.
+   The harness diagram places the same compact vector `TPx` badge directly on
+   each member conductor near its cable or wire-box entry;
+   the same annotated SVG is used in the editor, HTML report, and PDF report.
    Twisted-pair relationships are stored in `.wireform.json`, shown in HTML and
    PDF reports, and intentionally omitted from standard WireViz YAML and BOMs.
 12. Choose **Harness notes** in the left panel to edit project-wide assembly and
