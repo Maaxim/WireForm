@@ -183,7 +183,7 @@ test("termination rows map both ends and manufacturing metadata", () => {
   assert.equal(opposite.tooling, "Hand tool 42");
 });
 
-test("multiconductor cable appears once with modeled length and endpoints", () => {
+test("multiconductor cable appears once with modeled physical metadata", () => {
   const value = report.buildHarnessReportModel(realisticProject(), SAFE_SVG);
   assert.deepEqual(value.cables, [
     {
@@ -196,8 +196,6 @@ test("multiconductor cable appears once with modeled length and endpoints", () =
       conductorCount: 2,
       gauge: "22 AWG",
       color: "",
-      from: "X1:1, X1:2",
-      to: "X2:1, X2:2",
       notes: "Route away from motor",
       twistedPair: "",
       conductors: [
@@ -358,6 +356,45 @@ test("standalone HTML has report sections, CSP, and print CSS", () => {
   assert.match(html, /@media print/);
   assert.match(html, /thead\{display:table-header-group/);
   assert.doesNotMatch(html, /<script|<link|cdn/i);
+});
+
+test("HTML cable summary omits endpoint lists and keeps Connection Mapping authoritative", () => {
+  const project = realisticProject();
+  const bundle = component("bundle", "bundle-summary", "B1");
+  bundle.wireCount = 2;
+  bundle.wireLabels = ["PAIR_H", "PAIR_L"];
+  bundle.colors = ["BUWH", "WHBU"];
+  project.components.push(bundle);
+  const html = report.renderHarnessReportHtml(
+    report.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  const cables = html.match(
+    /<section class="report-section" id="cables">([\s\S]*?)<\/section>/,
+  )?.[1];
+  assert.ok(cables);
+  assert.doesNotMatch(cables, /<th>From<\/th>|<th>To<\/th>/);
+  for (const heading of [
+    "Designator",
+    "Manufacturer",
+    "MPN",
+    "Length",
+    "Conductors",
+    "Wire size",
+  ]) {
+    assert.match(cables, new RegExp(`<th(?: class="[^"]+")?>${heading}<\\/th>`));
+  }
+  assert.match(cables, /W1/);
+  assert.match(cables, /LAPP/);
+  assert.match(cables, /CABLE-1/);
+  const mapping = html.match(
+    /<section class="report-section" id="connection-mapping">([\s\S]*?)<\/section>/,
+  )?.[1];
+  assert.match(mapping, /<th>From Connector<\/th>/);
+  assert.match(mapping, /<th>From Pin<\/th>/);
+  assert.match(mapping, /<th>To Connector<\/th>/);
+  assert.match(mapping, /<th>To Pin<\/th>/);
+  assert.match(html, /id="terminations"/);
+  assert.match(html, /Bundle Conductors/);
 });
 
 test("HTML BOM renders shared quantities and natural designators", () => {

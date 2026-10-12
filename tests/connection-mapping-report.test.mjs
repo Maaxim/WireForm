@@ -260,6 +260,12 @@ test("shared report model feeds HTML directly after the diagram with six fixed c
   assert.match(html, />OPEN</);
   assert.match(html, />UNRESOLVED</);
   assert.match(html, /wire-color-swatch/);
+  assert.match(
+    html,
+    /<span class="connection-conductor"><span>W1 · CAN_H · BU<\/span><span class="wire-color-swatch"/,
+  );
+  assert.match(html, /\.connection-conductor\{display:inline-flex;align-items:center;gap:6px\}/);
+  assert.doesNotMatch(html, /\.connection-conductor\{[^}]*space-between/);
   assert.match(html, /default-src 'none'/);
 });
 
@@ -319,6 +325,9 @@ test("PDF mapping conductor cells reuse vector solid and bicolor swatches", () =
   };
 
   const solidBlue = cellFor("W1");
+  assert.equal(solidBlue.columns[0].width, 28);
+  assert.equal(solidBlue.columnGap, 3);
+  assert.equal(solidBlue.columns[1].width, "*");
   assert.equal(solidBlue.columns[0].canvas[0].color, "#3f74b8");
   assert.equal(solidBlue.columns[0].canvas.at(-1).lineColor, "#66777e");
   assert.match(contentText(solidBlue), /W1 · CAN_H · BU/);
@@ -343,6 +352,16 @@ test("PDF mapping conductor cells reuse vector solid and bicolor swatches", () =
   assert.equal(reversedCell.columns[0].canvas[0].color, "#f5f5f1");
   assert.equal(reversedCell.columns[0].canvas[1].color, "#3f74b8");
   assert.match(contentText(reversedCell), /WHBU/);
+
+  const solidCellForCode = (code) => {
+    const rowIndex = report.connectionMapping.findIndex(
+      (row) => row.conductor.colorCode === code,
+    );
+    assert.ok(rowIndex >= 0);
+    return mappingTable.table.body[rowIndex + 1][2];
+  };
+  assert.equal(solidCellForCode("RD").columns[0].canvas[0].color, "#d44c43");
+  assert.equal(solidCellForCode("BK").columns[0].canvas[0].color, "#25292d");
 });
 
 test("PDF mapping swatch handles unknown bundle color without losing text", () => {

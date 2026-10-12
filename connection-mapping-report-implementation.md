@@ -94,9 +94,13 @@ The self-contained HTML report adds:
 
 The existing CSP, escaping, static/offline behavior, detailed sections, and print styles remain in place.
 
+The shared Cables / Wires summary no longer carries or renders condensed From/To endpoint lists. Exact conductor-level connectivity remains in Connection Mapping, while cable and bundle physical-part metadata and bundle conductor details remain unchanged.
+
 ## PDF implementation
 
 The native PDF adds the same section immediately after the diagram. It uses the same normalized row objects and a compact portrait table with the conductor column assigned the flexible width. The existing shared PDF table helper supplies `headerRows: 1` and `keepWithHeaderRows: 1`, allowing long mappings to span pages with repeated headers. No alternate topology or BOM calculation was introduced.
+
+The Harness Diagram page now parses the final shared SVG viewBox (falling back to normalized width/height) and compares the usable portrait and landscape scale after A4 margins, header/footer space, and the section heading. Only the diagram page uses the selected orientation; Connection Mapping explicitly returns to portrait. The SVG is fitted proportionally without changing Graphviz coordinates or annotations.
 
 ## Tests
 

@@ -114,8 +114,6 @@ export interface ReportCable {
   conductorCount: number;
   gauge: string;
   color: string;
-  from: string;
-  to: string;
   notes: string;
   twistedPair: string;
   conductors: ReportConductor[];
@@ -419,8 +417,6 @@ function buildCables(project: HarnessProject): ReportCable[] {
         );
         ends[own.side].push(connectionLabel(otherComponent, other.portId));
       }
-      const from = uniqueNatural(ends.left).join(", ");
-      const to = uniqueNatural(ends.right).join(", ");
       const fromEnd = uniqueNatural(
         ends.left.map((value) => value.split(":", 1)[0]),
       ).join(", ");
@@ -442,8 +438,6 @@ function buildCables(project: HarnessProject): ReportCable[] {
         conductorCount: component.wireCount,
         gauge: component.gauge,
         color: component.kind === "wire" ? clean(component.colors[0]) : "",
-        from,
-        to,
         notes: component.notes,
         twistedPair: pair
           ? `${pair.designator || "Twisted pair"}${counterpart ? ` / ${getTwistedPairMemberDisplay(project, counterpart)}` : " / missing member"}`
@@ -1070,7 +1064,7 @@ function cableConductorsSection(cable: ReportCable) {
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
 *{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
-.mapping-note{margin:-6px 0 12px;color:#64737d;font-size:.82rem}.connection-conductor{display:flex;align-items:center;justify-content:space-between;gap:8px}.connection-conductor .wire-color-swatch{width:28px}.harness-images{padding-bottom:8px}.harness-image{margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #dce3e6;text-align:center}.harness-image:last-child{border-bottom:0;margin-bottom:0}.harness-image h3{text-align:left}.harness-image img{display:block;width:auto;height:auto;max-width:100%;max-height:760px;object-fit:contain;margin:0 auto;border:1px solid #ccd4d9;border-radius:5px}.harness-image figcaption{max-width:none;margin:10px auto 0;text-align:left;white-space:pre-wrap;font-size:.9rem;color:#455661}
+.mapping-note{margin:-6px 0 12px;color:#64737d;font-size:.82rem}.connection-conductor{display:inline-flex;align-items:center;gap:6px}.connection-conductor .wire-color-swatch{width:28px}.harness-images{padding-bottom:8px}.harness-image{margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #dce3e6;text-align:center}.harness-image:last-child{border-bottom:0;margin-bottom:0}.harness-image h3{text-align:left}.harness-image img{display:block;width:auto;height:auto;max-width:100%;max-height:760px;object-fit:contain;margin:0 auto;border:1px solid #ccd4d9;border-radius:5px}.harness-image figcaption{max-width:none;margin:10px auto 0;text-align:left;white-space:pre-wrap;font-size:.9rem;color:#455661}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media print{.harness-images{break-before:page}.harness-image{break-inside:avoid}.harness-image img{max-width:100%;max-height:220mm}}
@@ -1122,8 +1116,6 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
       optional: true,
     },
     { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
-    { heading: "From", value: (row) => row.from, optional: true },
-    { heading: "To", value: (row) => row.to, optional: true },
     { heading: "Notes", value: (row) => row.notes, optional: true },
     {
       heading: "Approved alternatives",

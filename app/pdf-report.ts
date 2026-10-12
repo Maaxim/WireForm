@@ -53,9 +53,102 @@ export interface PdfDownloadResult {
 
 const DETERMINISTIC_PDF_DATE = new Date("2000-01-01T00:00:00.000Z");
 const PDF_RASTER_IMAGE = /^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=\s]+$/;
+const PDF_PAGE_MARGINS = [42, 54, 42, 44] as const;
+const A4_PAGE_POINTS = { width: 595.28, height: 841.89 } as const;
+const DIAGRAM_HEADING_SPACE = 40;
+
+export interface PdfDiagramLayout {
+  pageOrientation: "portrait" | "landscape";
+  fit: [number, number];
+  diagramWidth: number;
+  diagramHeight: number;
+  scale: number;
+}
 
 function clean(value: string | undefined) {
   return value?.trim() ?? "";
+}
+
+function svgLengthPoints(value: string | undefined) {
+  const match = value?.trim().match(
+    /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(px|pt|pc|in|cm|mm)?$/i,
+  );
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const unit = match[2]?.toLowerCase() ?? "px";
+  const factors: Record<string, number> = {
+    px: 0.75,
+    pt: 1,
+    pc: 12,
+    in: 72,
+    cm: 72 / 2.54,
+    mm: 72 / 25.4,
+  };
+  return amount * factors[unit];
+}
+
+export function getSvgDiagramDimensions(svg: string) {
+  const openingTag = svg.match(/<svg\b[^>]*>/i)?.[0] ?? "";
+  const viewBox = openingTag
+    .match(/\bviewBox\s*=\s*["']([^"']+)["']/i)?.[1]
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (
+    viewBox?.length === 4 &&
+    viewBox.every(Number.isFinite) &&
+    viewBox[2] > 0 &&
+    viewBox[3] > 0
+  ) {
+    return { width: viewBox[2], height: viewBox[3] };
+  }
+  const width = svgLengthPoints(
+    openingTag.match(/\bwidth\s*=\s*["']([^"']+)["']/i)?.[1],
+  );
+  const height = svgLengthPoints(
+    openingTag.match(/\bheight\s*=\s*["']([^"']+)["']/i)?.[1],
+  );
+  return width && height ? { width, height } : undefined;
+}
+
+function diagramArea(orientation: "portrait" | "landscape") {
+  const page =
+    orientation === "portrait"
+      ? A4_PAGE_POINTS
+      : { width: A4_PAGE_POINTS.height, height: A4_PAGE_POINTS.width };
+  return {
+    width: page.width - PDF_PAGE_MARGINS[0] - PDF_PAGE_MARGINS[2],
+    height:
+      page.height -
+      PDF_PAGE_MARGINS[1] -
+      PDF_PAGE_MARGINS[3] -
+      DIAGRAM_HEADING_SPACE,
+  };
+}
+
+export function choosePdfDiagramLayout(svg: string): PdfDiagramLayout {
+  const dimensions = getSvgDiagramDimensions(svg) ?? { width: 16, height: 9 };
+  const portrait = diagramArea("portrait");
+  const landscape = diagramArea("landscape");
+  const portraitScale = Math.min(
+    portrait.width / dimensions.width,
+    portrait.height / dimensions.height,
+  );
+  const landscapeScale = Math.min(
+    landscape.width / dimensions.width,
+    landscape.height / dimensions.height,
+  );
+  const pageOrientation =
+    landscapeScale > portraitScale ? "landscape" : "portrait";
+  const fitArea = pageOrientation === "landscape" ? landscape : portrait;
+  return {
+    pageOrientation,
+    fit: [fitArea.width, fitArea.height],
+    diagramWidth: dimensions.width,
+    diagramHeight: dimensions.height,
+    scale: Math.max(portraitScale, landscapeScale),
+  };
 }
 
 function text(value: string | number) {
@@ -341,8 +434,6 @@ const CABLE_COLUMNS: Array<PdfColumn<ReportCable>> = [
     optional: true,
   },
   { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
-  { heading: "From", value: (row) => row.from, optional: true },
-  { heading: "To", value: (row) => row.to, optional: true },
   { heading: "Notes", value: (row) => row.notes, optional: true },
 ];
 
@@ -547,16 +638,17 @@ export function buildHarnessPdfDocument(
   const revision = clean(model.project.revision);
   const headerTitle = `${title} — Wiring Harness Report${revision ? ` — Rev ${revision}` : ""}`;
   const content: Content[] = [...cover(model)];
+  const diagramLayout = choosePdfDiagramLayout(model.diagramSvg);
 
   content.push({
     ...heading("Harness Diagram", "before"),
-    pageOrientation: "landscape",
+    pageOrientation: diagramLayout.pageOrientation,
   });
   content.push(
     includeDiagram
       ? {
           svg: model.diagramSvg,
-          fit: [720, 455],
+          fit: diagramLayout.fit,
           alignment: "center",
           margin: [0, 8, 0, 0],
         }
@@ -632,7 +724,7 @@ export function buildHarnessPdfDocument(
   return {
     pageSize: "A4",
     pageOrientation: "portrait",
-    pageMargins: [42, 54, 42, 44],
+    pageMargins: [...PDF_PAGE_MARGINS],
     compress: true,
     info: {
       title: `${title} — Wiring Harness Report`,

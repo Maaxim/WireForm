@@ -200,15 +200,80 @@ test("PDF renderer consumes the shared report model and native BOM rows", async 
 test("PDF uses sanitized diagram SVG as vector input and embeds valid connector images", () => {
   const report = htmlReport.buildHarnessReportModel(projectFixture(), SAFE_SVG);
   const definition = pdfReport.buildHarnessPdfDocument(report);
+  const diagramLayout = pdfReport.choosePdfDiagramLayout(report.diagramSvg);
   const svgNodes = findNodes(definition.content, (node) => typeof node.svg === "string");
   assert.equal(svgNodes.length, 1);
   assert.equal(svgNodes[0].svg, report.diagramSvg);
-  assert.deepEqual(svgNodes[0].fit, [720, 455]);
+  assert.deepEqual(svgNodes[0].fit, diagramLayout.fit);
 
   const imageNodes = findNodes(definition.content, (node) => typeof node.image === "string");
   assert.equal(imageNodes.length, 1);
   assert.equal(imageNodes[0].image, PIXEL);
   assert.match(allText(definition.content), /X1 connector/);
+});
+
+test("PDF diagram orientation chooses the larger printable scale and restores portrait", () => {
+  const svg = (width, height) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><path d="M0 0L${width} ${height}" /></svg>`;
+  const wide = pdfReport.choosePdfDiagramLayout(svg(1600, 300));
+  const tall = pdfReport.choosePdfDiagramLayout(svg(300, 1600));
+  const square = pdfReport.choosePdfDiagramLayout(svg(800, 800));
+
+  assert.equal(wide.pageOrientation, "landscape");
+  assert.equal(tall.pageOrientation, "portrait");
+  assert.equal(square.pageOrientation, "portrait");
+  assert.ok(Math.abs(wide.fit[0] - (841.89 - 42 - 42)) < 0.001);
+  assert.ok(Math.abs(tall.fit[1] - (841.89 - 54 - 44 - 40)) < 0.001);
+  assert.equal(
+    wide.scale,
+    Math.min(wide.fit[0] / wide.diagramWidth, wide.fit[1] / wide.diagramHeight),
+  );
+  assert.equal(
+    tall.scale,
+    Math.min(tall.fit[0] / tall.diagramWidth, tall.fit[1] / tall.diagramHeight),
+  );
+
+  const report = htmlReport.buildHarnessReportModel(projectFixture(), svg(1600, 300));
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const headings = findNodes(
+    definition.content,
+    (node) => node.style === "sectionHeading",
+  );
+  const diagramHeading = headings.find((node) => node.text === "Harness Diagram");
+  const mappingHeading = headings.find((node) => node.text === "Connection Mapping");
+  assert.equal(diagramHeading.pageOrientation, "landscape");
+  assert.equal(mappingHeading.pageOrientation, "portrait");
+  const svgNode = findNodes(definition.content, (node) => typeof node.svg === "string")[0];
+  assert.equal(svgNode.svg, report.diagramSvg);
+  assert.deepEqual(svgNode.fit, wide.fit);
+});
+
+test("PDF cable summary omits endpoint lists while retaining physical metadata", () => {
+  const report = htmlReport.buildHarnessReportModel(projectFixture(), SAFE_SVG);
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const tables = findNodes(definition.content, (node) => node.table?.body);
+  const cableTable = tables.find((node) => {
+    const headings = node.table.body[0].map((cell) => cell.text);
+    return headings.includes("Designator") && headings.includes("Cond.");
+  });
+  assert.ok(cableTable);
+  const headings = cableTable.table.body[0].map((cell) => cell.text);
+  assert.ok(!headings.includes("From"));
+  assert.ok(!headings.includes("To"));
+  for (const expected of ["W1", "Alpha Wire", "6713", "0.22 m", "1", "24 AWG"]) {
+    assert.match(allText(cableTable), new RegExp(expected.replace(".", "\\.")));
+  }
+  const terminationTable = tables.find((node) =>
+    node.table.body[0].some((cell) => cell.text === "Strip"),
+  );
+  assert.ok(terminationTable);
+  assert.match(allText(terminationTable), /CONTACT-1/);
+  const conductorTable = tables.find((node) => {
+    const headings = node.table.body[0].map((cell) => cell.text);
+    return headings.includes("Conductor") && headings.includes("Color");
+  });
+  assert.ok(conductorTable);
+  assert.match(allText(conductorTable), /Red \(RD\)/);
 });
 
 test("connector image alternative text is shared by HTML and PDF", () => {

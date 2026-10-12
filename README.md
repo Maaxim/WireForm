@@ -205,7 +205,11 @@ cable/bundle conductor appears once, with both physical connector pins, an
 optional pin label in parentheses, conductor identification and color code, and
 the twisted-pair designator when applicable. One-ended and unused conductors
 are shown as `OPEN`; From/To is deterministic report ordering and does not imply
-electrical signal direction.
+electrical signal direction. The Cables / Wires summary intentionally omits
+condensed From/To endpoint lists; exact routing belongs in Connection Mapping.
+The native PDF automatically selects portrait or landscape for the Harness
+Diagram according to which printable page area produces the larger readable
+SVG scale, while later report sections retain their normal orientation.
 
 Harness Notes are user-authored documentation for the complete project. They
 are autosaved, included in project JSON, and rendered as escaped plain text in
