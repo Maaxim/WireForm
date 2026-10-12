@@ -56,6 +56,11 @@ import {
   buildBomRows,
   serializeBomCsv,
 } from "./bom";
+import { buildConnectionHoverInfoIndex } from "./connection-hover";
+import {
+  buildPhysicalConnectionMemberLinkIndex,
+  physicalConnectionMemberKey,
+} from "./connection-topology";
 import {
   CABLE_QUANTITY_MODES,
   CONNECTOR_QUANTITY_MODES,
@@ -856,6 +861,9 @@ export function HarnessStudio() {
     canRedo: false,
   });
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [hoveredConnectionMember, setHoveredConnectionMember] = useState<
+    string | null
+  >(null);
   const [dragWorkspaceBounds, setDragWorkspaceBounds] =
     useState<Bounds | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
@@ -897,6 +905,8 @@ export function HarnessStudio() {
   const pasteSequenceRef = useRef(0);
   const dragDidMoveRef = useRef(false);
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
+  const connectionTooltipRef = useRef<HTMLDivElement | null>(null);
+  const connectionTooltipPositionRef = useRef({ x: 0, y: 0 });
   const previousCanvasViewRef = useRef<{
     bounds: Bounds;
     zoom: number;
@@ -915,6 +925,17 @@ export function HarnessStudio() {
     : undefined;
   const pairCreationIssue = twistedPairCreationIssue(project, selectedIds);
   const validation = useMemo(() => validateProject(project), [project]);
+  const connectionHoverInfoByMember = useMemo(
+    () => buildConnectionHoverInfoIndex(project),
+    [project],
+  );
+  const connectionMemberByLink = useMemo(
+    () => buildPhysicalConnectionMemberLinkIndex(project),
+    [project],
+  );
+  const connectionHoverInfo = hoveredConnectionMember
+    ? connectionHoverInfoByMember.get(hoveredConnectionMember)
+    : undefined;
   const wirevizDocument = useMemo(() => buildWireVizDocument(project), [project]);
   const yaml = useMemo(
     () =>
@@ -971,6 +992,43 @@ export function HarnessStudio() {
   );
   const workspaceWidth = boundsWidth(workspaceBounds);
   const workspaceHeight = boundsHeight(workspaceBounds);
+
+  const positionConnectionTooltip = useCallback((clientX: number, clientY: number) => {
+    connectionTooltipPositionRef.current = { x: clientX, y: clientY };
+    const tooltip = connectionTooltipRef.current;
+    if (!tooltip) return;
+    const offset = 14;
+    const left = Math.max(
+      8,
+      Math.min(clientX + offset, window.innerWidth - tooltip.offsetWidth - 8),
+    );
+    const top = Math.max(
+      8,
+      Math.min(clientY + offset, window.innerHeight - tooltip.offsetHeight - 8),
+    );
+    tooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!connectionHoverInfo) return;
+    const position = connectionTooltipPositionRef.current;
+    positionConnectionTooltip(position.x, position.y);
+  }, [connectionHoverInfo, positionConnectionTooltip]);
+
+  const showConnectionTooltip = (
+    memberKey: string,
+    event: React.PointerEvent<SVGGElement>,
+  ) => {
+    connectionTooltipPositionRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+    setHoveredConnectionMember(memberKey);
+  };
+
+  const moveConnectionTooltip = (event: React.PointerEvent<SVGGElement>) => {
+    positionConnectionTooltip(event.clientX, event.clientY);
+  };
 
   useLayoutEffect(() => {
     const viewport = canvasScrollRef.current;
@@ -2897,7 +2955,11 @@ export function HarnessStudio() {
             </div>
           </div>
 
-          <div className="canvas-scroll" ref={canvasScrollRef}>
+          <div
+            className="canvas-scroll"
+            ref={canvasScrollRef}
+            onScroll={() => setHoveredConnectionMember(null)}
+          >
             <div
               className="canvas-zoom"
               style={{
@@ -2955,6 +3017,17 @@ export function HarnessStudio() {
                         ? link.from
                         : link.to
                       : undefined;
+                    const connectionMember =
+                      connectionMemberByLink.get(link.id);
+                    const connectionMemberKey = connectionMember
+                      ? physicalConnectionMemberKey(connectionMember)
+                      : undefined;
+                    const conductorId =
+                      cableNode && connectionMember
+                        ? cableNode.conductorIds[
+                            connectionMember.conductorNumber - 1
+                          ]
+                        : undefined;
                     const wireCode =
                       cableNode && cablePort?.portId.startsWith("wire:")
                         ? (cableNode.colors[
@@ -2973,12 +3046,43 @@ export function HarnessStudio() {
                       to.x
                     } ${to.y}`;
                     return (
-                      <g key={link.id} className="connection-line">
+                      <g
+                        key={link.id}
+                        className={`connection-line ${
+                          connectionMemberKey === hoveredConnectionMember
+                            ? "hovered"
+                            : ""
+                        }`}
+                        data-link-id={link.id}
+                        data-connection-member-id={connectionMemberKey}
+                        data-wire-id={
+                          cableNode?.kind === "wire" ? cableNode.id : undefined
+                        }
+                        data-conductor-id={conductorId}
+                        onPointerEnter={
+                          connectionMemberKey
+                            ? (event) =>
+                                showConnectionTooltip(
+                                  connectionMemberKey,
+                                  event,
+                                )
+                            : undefined
+                        }
+                        onPointerMove={
+                          connectionMemberKey ? moveConnectionTooltip : undefined
+                        }
+                        onPointerLeave={
+                          connectionMemberKey
+                            ? () => setHoveredConnectionMember(null)
+                            : undefined
+                        }
+                      >
                         <path
                           d={path}
                           className="connection-hit"
                           onClick={(event) => {
                             event.stopPropagation();
+                            setHoveredConnectionMember(null);
                             removeLink(link.id);
                           }}
                         />
@@ -4829,6 +4933,20 @@ export function HarnessStudio() {
               </button>
             </div>
           </section>
+        </div>
+      )}
+
+      {connectionHoverInfo && (
+        <div
+          ref={connectionTooltipRef}
+          className="connection-hover-tooltip"
+          role="tooltip"
+          data-connection-member-id={connectionHoverInfo.memberKey}
+        >
+          <strong>{connectionHoverInfo.primaryText}</strong>
+          {connectionHoverInfo.secondaryText && (
+            <span>{connectionHoverInfo.secondaryText}</span>
+          )}
         </div>
       )}
 

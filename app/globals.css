@@ -659,19 +659,51 @@ select:focus-visible {
   stroke-width: 14;
 }
 
-.connection-line:hover .connection-visible {
+.connection-line:hover .connection-visible,
+.connection-line.hovered .connection-visible {
   stroke-width: 4.25;
   filter: drop-shadow(0 0 2px var(--danger));
 }
 
-.connection-line:hover .connection-stripe {
+.connection-line:hover .connection-stripe,
+.connection-line.hovered .connection-stripe {
   stroke-width: 1.75;
 }
 
-.connection-line:hover .connection-outline {
+.connection-line:hover .connection-outline,
+.connection-line.hovered .connection-outline {
   stroke: var(--danger);
   stroke-width: 6;
   opacity: 0.8;
+}
+
+.connection-hover-tooltip {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 1000;
+  display: grid;
+  gap: 2px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 7px 9px;
+  color: #eff7f8;
+  background: rgba(31, 48, 56, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  box-shadow: 0 5px 16px rgba(22, 35, 41, 0.24);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.connection-hover-tooltip strong {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.connection-hover-tooltip span {
+  color: #c4d2d7;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .harness-node {
