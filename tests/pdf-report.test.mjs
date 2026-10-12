@@ -276,6 +276,211 @@ test("PDF cable summary omits endpoint lists while retaining physical metadata",
   assert.match(allText(conductorTable), /Red \(RD\)/);
 });
 
+test("PDF pinout is compact while Terminations remains authoritative", () => {
+  const report = htmlReport.buildHarnessReportModel(projectFixture(), SAFE_SVG);
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const tables = findNodes(definition.content, (node) => node.table?.body);
+  const pinout = tables.find((node) => {
+    const headings = node.table.body[0].map((cell) => cell.text);
+    return headings.includes("Pin") && headings.includes("Wire / Conductor") && headings.includes("Color");
+  });
+  assert.ok(pinout);
+  assert.deepEqual(
+    pinout.table.body[0].map((cell) => cell.text),
+    ["Pin", "Label", "Wire / Conductor", "Color"],
+  );
+  assert.match(allText(pinout), /W1/);
+  assert.match(allText(pinout), /White \(WH\)/);
+  assert.doesNotMatch(allText(pinout), /24 AWG|CONTACT-1|SEAL-1|5 mm/);
+
+  const terminations = tables.find((node) =>
+    node.table.body[0].some((cell) => cell.text === "Strip"),
+  );
+  assert.ok(terminations);
+  assert.match(allText(terminations), /CONTACT-1/);
+  assert.match(allText(terminations), /SEAL-1/);
+  assert.match(allText(terminations), /5 mm/);
+});
+
+test("PDF and HTML share safe compact one-pin connector classification", () => {
+  const project = projectFixture();
+  const simple = component("connector", "x2", "X2");
+  simple.pinCount = 1;
+  simple.name = "Blade receptacle";
+  simple.manufacturer = "TE";
+  simple.mpn = "FASTON-1";
+  simple.pinLabels = ["L"];
+  const special = component("connector", "x3", "X3");
+  special.pinCount = 1;
+  special.name = "Service connector";
+  special.notes = "Install after test";
+  project.components.push(simple, special);
+  const report = htmlReport.buildHarnessReportModel(project, SAFE_SVG);
+  assert.deepEqual(
+    report.connectors.map(({ designator, compact }) => ({ designator, compact })),
+    [
+      { designator: "X1", compact: false },
+      { designator: "X2", compact: true },
+      { designator: "X3", compact: false },
+    ],
+  );
+  const html = htmlReport.renderHarnessReportHtml(report);
+  assert.match(html, /Simple One-Pin Connectors/);
+  assert.match(html, /FASTON-1/);
+  assert.match(html, /Install after test/);
+
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const compactTable = findNodes(definition.content, (node) => {
+    const headings = node.table?.body?.[0]?.map((cell) => cell.text) ?? [];
+    return headings.includes("Designator") && headings.includes("Pin label");
+  })[0];
+  assert.ok(compactTable);
+  assert.match(allText(compactTable), /X2/);
+  assert.match(allText(compactTable), /FASTON-1/);
+  assert.match(allText(compactTable), /Blade receptacle/);
+  assert.match(allText(compactTable), /L/);
+  assert.doesNotMatch(allText(compactTable), /X1|X3/);
+  const subsectionHeadings = findNodes(
+    definition.content,
+    (node) => node.style === "subsectionHeading",
+  ).map((node) => node.text);
+  assert.ok(subsectionHeadings.includes("X1"));
+  assert.ok(subsectionHeadings.includes("X3"));
+  assert.ok(!subsectionHeadings.includes("X2"));
+});
+
+test("PDF restores pair color swatches and keeps bundle conductor TP context", () => {
+  const project = projectFixture();
+  const bundle = project.components.find((item) => item.designator === "B1");
+  bundle.wireCount = 2;
+  bundle.wireLabels = ["PAIR_H", "PAIR_L"];
+  bundle.colors = ["BUWH", "WHBU"];
+  project.twistedPairs.push({
+    id: "pair-bundle",
+    designator: "TP2",
+    members: [
+      { kind: "bundle-conductor", bundleId: bundle.id, conductorId: bundle.conductorIds[0] },
+      { kind: "bundle-conductor", bundleId: bundle.id, conductorId: bundle.conductorIds[1] },
+    ],
+    twistPitchMm: 30,
+    twistDirection: "S",
+  });
+  const definition = pdfReport.buildHarnessPdfDocument(
+    htmlReport.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  const tables = findNodes(definition.content, (node) => node.table?.body);
+  const pairs = tables.find((node) =>
+    node.table.body[0].some((cell) => cell.text === "Pair"),
+  );
+  assert.deepEqual(
+    pairs.table.body[0].map((cell) => cell.text),
+    [
+      "Pair",
+      "Member A",
+      "Member A color",
+      "Member B",
+      "Member B color",
+      "Pitch",
+      "Direction",
+      "Notes",
+    ],
+  );
+  assert.match(allText(pairs), /Blue \/ White \(BUWH\)/);
+  assert.match(allText(pairs), /White \/ Blue \(WHBU\)/);
+  const pairCanvases = findNodes(pairs, (node) => Array.isArray(node.canvas));
+  assert.ok(
+    pairCanvases.some(
+      (node) =>
+        node.canvas[0]?.color === "#3f74b8" &&
+        node.canvas[1]?.color === "#f5f5f1",
+    ),
+  );
+  assert.ok(
+    pairCanvases.some(
+      (node) =>
+        node.canvas[0]?.color === "#f5f5f1" &&
+        node.canvas[1]?.color === "#3f74b8",
+    ),
+  );
+  const conductors = tables.find((node) => {
+    const headings = node.table.body[0].map((cell) => cell.text);
+    return headings.includes("Conductor") && headings.includes("Twisted pair");
+  });
+  assert.ok(conductors);
+  assert.match(allText(conductors), /Blue \/ White \(BUWH\)/);
+  assert.match(allText(conductors), /TP2 \/ B1:PAIR_L/);
+});
+
+test("PDF groups accessories per cable and retains report-only BOM ranges", () => {
+  const project = projectFixture();
+  const w2 = project.components.find((component) => component.designator === "W2");
+  w2.additionalComponents = [
+    {
+      id: "acc-w2",
+      type: "Heat shrink",
+      subtype: "Blue",
+      qty: 2,
+      unit: "pcs",
+      placement: { end: "both" },
+    },
+  ];
+  const w3 = component("wire", "w3", "W3");
+  project.components.push(w3);
+  const nativeBom = bom.buildBomRows(project);
+  const report = htmlReport.buildHarnessReportModel(project, SAFE_SVG);
+  assert.deepEqual(report.bomRows, nativeBom);
+  assert.equal(
+    report.cables.find((cable) => cable.designator === "W1")
+      .additionalComponents[0].calculatedQuantity,
+    1,
+  );
+  assert.equal(
+    report.cables.find((cable) => cable.designator === "W2")
+      .additionalComponents[0].calculatedQuantity,
+    2,
+  );
+  const rawDesignators = ["W1", "W2", "W4"];
+  const rawSnapshot = [...rawDesignators];
+  report.bomRows = [
+    {
+      category: "Wire",
+      manufacturer: "Alpha",
+      mpn: "WIRE",
+      description: "Test wire",
+      quantity: 3,
+      unit: "pcs",
+      designators: rawDesignators,
+      approvedAlternatives: [],
+      notes: "",
+    },
+  ];
+  const definition = pdfReport.buildHarnessPdfDocument(report);
+  const subsectionHeadings = findNodes(
+    definition.content,
+    (node) => node.style === "subsectionHeading",
+  ).map((node) => node.text);
+  assert.ok(subsectionHeadings.includes("W1 Additional Components"));
+  assert.ok(subsectionHeadings.includes("W2 Additional Components"));
+  assert.ok(!subsectionHeadings.includes("W3 Additional Components"));
+  assert.ok(!subsectionHeadings.includes("Cable Additional Components"));
+  const accessoryTables = findNodes(definition.content, (node) => {
+    const headings = node.table?.body?.[0]?.map((cell) => cell.text) ?? [];
+    return headings.includes("Type") && headings.includes("Placement") && headings.includes("Qty");
+  });
+  assert.equal(accessoryTables.length, 2);
+  assert.match(allText(accessoryTables[0]), /Wire label/);
+  assert.match(allText(accessoryTables[0]), /1/);
+  assert.match(allText(accessoryTables[0]), /Near connector/);
+  assert.match(allText(accessoryTables[1]), /Heat shrink/);
+  assert.match(allText(accessoryTables[1]), /Both ends/);
+  const bomTable = findNodes(definition.content, (node) =>
+    node.table?.body?.[0]?.some((cell) => cell.text === "Designators"),
+  )[0];
+  assert.match(allText(bomTable), /W1–W2, W4/);
+  assert.match(allText(bomTable), /3/);
+  assert.deepEqual(rawDesignators, rawSnapshot);
+});
+
 test("connector image alternative text is shared by HTML and PDF", () => {
   const project = projectFixture();
   const alternativeText =

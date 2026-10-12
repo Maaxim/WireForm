@@ -62,13 +62,8 @@ export interface ReportPin {
   pin: string;
   label: string;
   signal: string;
-  cable: string;
-  conductor: string;
+  wireConductor: string;
   color: string;
-  gauge: string;
-  contactManufacturer: string;
-  contactMpn: string;
-  sealPn: string;
 }
 
 export interface ReportConnector {
@@ -81,6 +76,7 @@ export interface ReportConnector {
   supplierPn: string;
   pinCount: number;
   notes: string;
+  compact: boolean;
   photo?: {
     dataUrl: string;
     alt: string;
@@ -313,29 +309,26 @@ function pinRows(
             pin: String(pin),
             label,
             signal: "",
-            cable: "",
-            conductor: "",
+            wireConductor: "",
             color: "",
-            gauge: "",
-            contactManufacturer: "",
-            contactMpn: "",
-            sealPn: "",
           },
         ];
       }
-      return contexts.map(({ cable, cablePortId, link }) => {
+      return contexts.map(({ cable, cablePortId }) => {
         const conductor = portOrdinal(cablePortId);
         return {
           pin: String(pin),
           label,
           signal: getConductorSignal(cable, cablePortId),
-          cable: cable.designator,
-          conductor: conductorLabel(cable, cablePortId),
+          wireConductor:
+            cable.kind === "wire"
+              ? cable.designator
+              : cablePortId === "shield"
+                ? `${cable.designator} / shield`
+                : conductor
+                  ? `${cable.designator} / cond. ${conductor}`
+                  : cable.designator,
           color: conductor ? clean(cable.colors[conductor - 1]) : "",
-          gauge: clean(cable.gauge),
-          contactManufacturer: clean(link.termination?.contact?.manufacturer),
-          contactMpn: partNumber(link.termination?.contact),
-          sealPn: partNumber(link.termination?.seal),
         };
       });
     });
@@ -358,6 +351,24 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
     .sort((left, right) => naturalCompare(left.designator, right.designator))
     .map((component) => {
       const photo = safePhoto(component);
+      const additionalComponents = (component.additionalComponents ?? []).map(
+        (additional) => ({
+          type: additional.type ?? "",
+          manufacturer: additional.manufacturer ?? "",
+          mpn: additional.mpn ?? additional.pn ?? "",
+          description: additional.subtype ?? "",
+          baseQuantity: additional.qty ?? 1,
+          quantityMode: additionalComponentModeLabel(additional.qtyMultiplier),
+          calculatedQuantity:
+            additionalComponentQuantity(project, component, additional) ??
+            "Unavailable",
+          unit: additional.unit ?? "pcs",
+          notes: additional.notes ?? "",
+        }),
+      );
+      const approvedAlternatives = componentApprovedAlternatives(component).map(
+        ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
+      );
       return {
         designator: component.designator,
         kind: component.kind,
@@ -368,28 +379,18 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
         supplierPn: component.spn,
         pinCount: component.pinCount,
         notes: component.notes,
+        compact:
+          component.pinCount === 1 &&
+          !photo &&
+          !clean(component.supplier) &&
+          !clean(component.spn) &&
+          !clean(component.notes) &&
+          !additionalComponents.length &&
+          !approvedAlternatives.length,
         ...(photo ? { photo } : {}),
         pins: pinRows(project, component),
-        additionalComponents: (component.additionalComponents ?? []).map(
-          (additional) => ({
-            type: additional.type ?? "",
-            manufacturer: additional.manufacturer ?? "",
-            mpn: additional.mpn ?? additional.pn ?? "",
-            description: additional.subtype ?? "",
-            baseQuantity: additional.qty ?? 1,
-            quantityMode: additionalComponentModeLabel(
-              additional.qtyMultiplier,
-            ),
-            calculatedQuantity:
-              additionalComponentQuantity(project, component, additional) ??
-              "Unavailable",
-            unit: additional.unit ?? "pcs",
-            notes: additional.notes ?? "",
-          }),
-        ),
-        approvedAlternatives: componentApprovedAlternatives(component).map(
-          ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
-        ),
+        additionalComponents,
+        approvedAlternatives,
       };
     });
 }
@@ -924,23 +925,17 @@ function connectorSection(connector: ReportConnector, index: number) {
   const pinColumns: Array<TableColumn<ReportPin>> = [
     { heading: "Pin", value: (row) => row.pin },
     { heading: "Label", value: (row) => row.label, optional: true },
-    { heading: "Signal", value: (row) => row.signal, optional: true },
-    { heading: "Cable / wire", value: (row) => row.cable, optional: true },
-    { heading: "Conductor", value: (row) => row.conductor, optional: true },
+    {
+      heading: "Wire / Conductor",
+      value: (row) => row.wireConductor,
+      optional: true,
+    },
     {
       heading: "Color",
       value: (row) => row.color,
       render: (row) => renderWireColorHtml(row.color),
       optional: true,
     },
-    { heading: "Wire size", value: (row) => row.gauge, optional: true },
-    {
-      heading: "Contact manufacturer",
-      value: (row) => row.contactManufacturer,
-      optional: true,
-    },
-    { heading: "Contact MPN", value: (row) => row.contactMpn, optional: true },
-    { heading: "Seal PN", value: (row) => row.sealPn, optional: true },
   ];
   const image = connector.photo
     ? `<figure><img src="${escapeHtml(connector.photo.dataUrl)}" alt="${escapeHtml(
@@ -995,24 +990,123 @@ ${additionalComponents}
 </article>`;
 }
 
-function cableAdditionalComponentsSection(cable: ReportCable) {
+function compactConnectorsSection(connectors: readonly ReportConnector[]) {
+  if (!connectors.length) return "";
+  const columns: Array<TableColumn<ReportConnector>> = [
+    { heading: "Designator", value: (row) => row.designator },
+    { heading: "Type", value: (row) => row.kind },
+    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
+    { heading: "MPN", value: (row) => row.mpn, optional: true },
+    { heading: "Description", value: (row) => row.name, optional: true },
+    {
+      heading: "Pin label",
+      value: (row) => row.pins[0]?.label ?? "",
+      optional: true,
+    },
+  ];
+  return `<article class="connector-card compact-connectors"><h3>Simple One-Pin Connectors</h3>${renderTable(
+    connectors,
+    columns,
+    "",
+  )}</article>`;
+}
+
+export function formatReportDesignators(designators: readonly string[]) {
+  interface ParsedDesignator {
+    group: string;
+    number: number;
+    formatSingle: (number: number) => string;
+    formatRange: (start: number, end: number) => string;
+  }
+  const parse = (value: string): ParsedDesignator | undefined => {
+    const pin = value.match(/^(.+):(\d+)$/);
+    if (pin && !/^0\d+/.test(pin[2])) {
+      const prefix = pin[1];
+      return {
+        group: `pin\0${prefix}`,
+        number: Number(pin[2]),
+        formatSingle: (number) => `${prefix}:${number}`,
+        formatRange: (start, end) => `${prefix}:${start}–${end}`,
+      };
+    }
+    const component = value.match(/^([A-Za-z][A-Za-z0-9_-]*?)(\d+)$/);
+    if (
+      component &&
+      !/^0\d+/.test(component[2]) &&
+      !/^[JX]$/i.test(component[1])
+    ) {
+      const prefix = component[1];
+      return {
+        group: `component\0${prefix.toLowerCase()}`,
+        number: Number(component[2]),
+        formatSingle: (number) => `${prefix}${number}`,
+        formatRange: (start, end) => `${prefix}${start}–${prefix}${end}`,
+      };
+    }
+    return undefined;
+  };
+
+  const sorted = [...new Set(designators.filter(Boolean))].sort(naturalCompare);
+  const groups = new Map<
+    string,
+    { parsed?: ParsedDesignator; values: string[]; numbers: number[] }
+  >();
+  for (const value of sorted) {
+    const parsed = parse(value);
+    const key = parsed?.group ?? `literal\0${value}`;
+    const group = groups.get(key) ?? { parsed, values: [], numbers: [] };
+    group.values.push(value);
+    if (parsed) group.numbers.push(parsed.number);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()]
+    .flatMap((group) => {
+      if (!group.parsed) return group.values;
+      const numbers = [...new Set(group.numbers)].sort((left, right) => left - right);
+      const output: string[] = [];
+      let start = numbers[0];
+      let end = start;
+      const flush = () => {
+        output.push(
+          start === end
+            ? group.parsed!.formatSingle(start)
+            : group.parsed!.formatRange(start, end),
+        );
+      };
+      for (const number of numbers.slice(1)) {
+        if (number === end + 1) {
+          end = number;
+        } else {
+          flush();
+          start = number;
+          end = number;
+        }
+      }
+      flush();
+      return output;
+    })
+    .join(", ");
+}
+
+function cableAdditionalComponentsSection(
+  cable: ReportCable,
+) {
   if (!cable.additionalComponents.length) return "";
   const columns: Array<TableColumn<ReportCableAdditionalComponent>> = [
     { heading: "Type", value: (row) => row.type },
     { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
     { heading: "MPN", value: (row) => row.mpn, optional: true },
     { heading: "Description", value: (row) => row.description, optional: true },
-    { heading: "Base qty", value: (row) => row.baseQuantity, numeric: true },
-    { heading: "Rule", value: (row) => row.quantityMode },
     {
-      heading: "Calculated",
+      heading: "Qty",
       value: (row) => row.calculatedQuantity,
       numeric: true,
     },
     { heading: "Unit", value: (row) => row.unit },
     { heading: "Placement", value: (row) => row.placement, optional: true },
   ];
-  return `<article class="cable-components"><h3>${escapeHtml(
+  return `<article class="cable-components cable-additional-components"><h3>${escapeHtml(
     cable.designator,
   )} <span>Additional Components</span></h3>${renderTable(
     cable.additionalComponents,
@@ -1171,7 +1265,7 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     { heading: "Unit", value: (row) => row.unit },
     {
       heading: "Designators",
-      value: (row) => [...row.designators].sort(naturalCompare).join(", "),
+      value: (row) => formatReportDesignators(row.designators),
       optional: true,
     },
     {
@@ -1218,6 +1312,12 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
     "No physical conductors are defined.",
   )}</section>`;
   const title = clean(model.project.title) || "Untitled Harness";
+  const detailedConnectors = model.connectors.filter(
+    (connector) => !connector.compact,
+  );
+  const compactConnectors = model.connectors.filter(
+    (connector) => connector.compact,
+  );
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1243,10 +1343,15 @@ ${metadataItem("WireForm schema", model.project.schemaVersion)}
 ${connectionMappingSection}
 <section id="connectors"><h2>Connectors</h2>${
     model.connectors.length
-      ? model.connectors.map(connectorSection).join("\n")
+      ? `${detailedConnectors.map(connectorSection).join("\n")}${compactConnectorsSection(compactConnectors)}`
       : '<div class="report-section"><p class="empty">No connectors are defined.</p></div>'
   }</section>
-<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables.map(cableConductorsSection).join("")}${model.cables.map(cableApprovedAlternativesSection).join("")}${model.cables.map(cableAdditionalComponentsSection).join("")}</section>
+<section class="report-section" id="cables"><h2>Cables / Wires</h2>${renderTable(model.cables, cableColumns, "No cables or wires are defined.")}${model.cables
+    .map(
+      (cable) =>
+        `${cableConductorsSection(cable)}${cableApprovedAlternativesSection(cable)}${cableAdditionalComponentsSection(cable)}`,
+    )
+    .join("")}</section>
 <section class="report-section" id="twisted-pairs"><h2>Twisted Pairs</h2>${renderTable(model.twistedPairs, twistedPairColumns, "No twisted-pair relationships are defined.")}</section>
 <section class="report-section" id="terminations"><h2>Terminations</h2>${renderTable(model.terminations, terminationColumns, "No explicit termination metadata is assigned.")}</section>
 <section class="report-section" id="bom"><h2>Bill of Materials</h2>${renderTable(sortBomRows(model.bomRows), bomColumns, "No BOM items are defined.")}</section>

@@ -261,9 +261,71 @@ test("HTML report shows effective quantity and resolved placement while reusing 
   assert.match(modelValue.cables[0].additionalComponents[0].placement, /30 mm from X1/);
   assert.deepEqual(modelValue.bomRows, bom.buildBomRows(project));
   const html = report.renderHarnessReportHtml(modelValue);
-  assert.match(html, /W1 <span>Additional Components<\/span>/);
+  assert.match(html, /<h3>W1 <span>Additional Components<\/span><\/h3>/);
+  assert.doesNotMatch(html, /<th>Cable<\/th>/);
   assert.match(html, /Ferrite &lt;safe&gt;/);
   assert.match(html, /30 mm from X1 end/);
+});
+
+test("report groups compact accessory tables with each cable in natural order", () => {
+  const { project, cable } = projectWithCable(2);
+  cable.additionalComponents = [
+    { id: "w1-sleeve", type: "Sleeve", qty: 1, unit: "pcs" },
+    {
+      id: "w1-shrink",
+      type: "Heat shrink",
+      subtype: "Black",
+      qty: 2,
+      unit: "pcs",
+      placement: { end: "both" },
+    },
+  ];
+  for (const number of [10, 2, 9]) {
+    const extra = model.makeComponent("wire", number, `wire-${number}`);
+    extra.designator = `W${number}`;
+    extra.additionalComponents = [
+      { id: `label-${number}`, type: "Wire label", qty: 1, unit: "pcs" },
+    ];
+    project.components.push(extra);
+  }
+  const empty = model.makeComponent("wire", 3, "wire-3");
+  empty.designator = "W3";
+  project.components.push(empty);
+  const value = report.buildHarnessReportModel(
+    project,
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text>Harness</text></svg>',
+  );
+  assert.deepEqual(
+    value.cables.flatMap((row) =>
+      row.additionalComponents.map((component) => [
+        row.designator,
+        component.calculatedQuantity,
+      ]),
+    ),
+    [["W1", 1], ["W1", 2], ["W2", 1], ["W9", 1], ["W10", 1]],
+  );
+  const bomBefore = structuredClone(value.bomRows);
+  const html = report.renderHarnessReportHtml(value);
+  assert.equal((html.match(/<span>Additional Components<\/span>/g) ?? []).length, 4);
+  assert.doesNotMatch(html, /<h3>Cable Additional Components<\/h3>/);
+  assert.doesNotMatch(html, /W3 <span>Additional Components/);
+  assert.ok(
+    html.indexOf("W1 <span>Additional Components") <
+      html.indexOf("W2 <span>Additional Components"),
+  );
+  assert.ok(
+    html.indexOf("W9 <span>Additional Components") <
+      html.indexOf("W10 <span>Additional Components"),
+  );
+  const w1Section = html.match(
+    /<h3>W1 <span>Additional Components<\/span><\/h3>([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.match(w1Section, /Sleeve/);
+  assert.match(w1Section, /Heat shrink/);
+  assert.match(w1Section, /Both ends/);
+  assert.match(w1Section, /<th class="number">Qty<\/th>/);
+  assert.doesNotMatch(w1Section, /Base qty|Calculated/);
+  assert.deepEqual(value.bomRows, bomBefore);
 });
 
 test("library instantiation and copy helpers clone data with fresh internal IDs", () => {

@@ -151,7 +151,6 @@ test("HTML report uses shared textual colors and self-contained directional swat
   assert.deepEqual(value.cables.map((item) => item.color), ["BU", "BUWH", "WHBU", "GNYE"]);
   assert.equal(value.twistedPairs[0].wireAColor, "BUWH");
   assert.equal(value.twistedPairs[0].wireBColor, "WHBU");
-
   const html = report.renderHarnessReportHtml(value);
   assert.match(html, /Blue \/ White \(BUWH\)/);
   assert.match(html, /White \/ Blue \(WHBU\)/);

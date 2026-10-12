@@ -135,22 +135,17 @@ test("report model maps metadata and naturally orders components", () => {
   );
 });
 
-test("pinout maps signal, conductor, color, size, contact, and seal", () => {
+test("pinout model keeps only local connector connectivity", () => {
   const value = report.buildHarnessReportModel(realisticProject(), SAFE_SVG);
   const x1 = value.connectors.find((item) => item.designator === "X1");
   assert.deepEqual(x1.pins[0], {
     pin: "1",
     label: "+24V",
     signal: "RD",
-    cable: "W1",
-    conductor: "1 · RD",
+    wireConductor: "W1 / cond. 1",
     color: "RD",
-    gauge: "22 AWG",
-    contactManufacturer: "HARTING",
-    contactMpn: "CONTACT-A",
-    sealPn: "SEAL-A",
   });
-  assert.equal(x1.pins[1].contactMpn, "CONTACT-B");
+  assert.equal(x1.pins[1].wireConductor, "W1 / cond. 2");
   assert.equal(
     value.connectors.find((item) => item.designator === "X10").pins.length,
     1,
@@ -395,6 +390,135 @@ test("HTML cable summary omits endpoint lists and keeps Connection Mapping autho
   assert.match(mapping, /<th>To Pin<\/th>/);
   assert.match(html, /id="terminations"/);
   assert.match(html, /Bundle Conductors/);
+});
+
+test("connector pinouts stay local while Terminations retain manufacturing data", () => {
+  const value = report.buildHarnessReportModel(realisticProject(), SAFE_SVG);
+  const html = report.renderHarnessReportHtml(value);
+  const x1 = html.match(
+    /<article class="connector-card" id="connector-1">([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.ok(x1);
+  for (const heading of ["Pin", "Label", "Wire / Conductor", "Color"]) {
+    assert.match(x1, new RegExp(`<th>${heading.replace("/", "\\/")}<\\/th>`));
+  }
+  assert.doesNotMatch(
+    x1,
+    /<th>(?:Wire size|Contact manufacturer|Contact MPN|Seal PN|Strip length)<\/th>/,
+  );
+  assert.match(x1, /W1 \/ cond\. 1/);
+  assert.match(x1, /Red \(RD\)/);
+  const terminations = html.match(
+    /<section class="report-section" id="terminations">([\s\S]*?)<\/section>/,
+  )?.[1];
+  assert.match(terminations, /Contact manufacturer/);
+  assert.match(terminations, /Contact MPN/);
+  assert.match(terminations, /Strip length/);
+  assert.match(terminations, /CONTACT-A/);
+  assert.match(terminations, /5 mm/);
+});
+
+test("simple one-pin connectors share lossless compact classification", () => {
+  const project = realisticProject();
+  const value = report.buildHarnessReportModel(project, SAFE_SVG);
+  assert.equal(
+    value.connectors.find((connector) => connector.designator === "X10").compact,
+    true,
+  );
+  assert.equal(
+    value.connectors.find((connector) => connector.designator === "X1").compact,
+    false,
+  );
+  const html = report.renderHarnessReportHtml(value);
+  const compact = html.match(
+    /<article class="connector-card compact-connectors">([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.match(compact, /Simple One-Pin Connectors/);
+  assert.match(compact, /X10/);
+  assert.match(compact, /Remote connector/);
+  assert.match(html, /<h3>X1 <span>Controller connector<\/span><\/h3>/);
+
+  project.components.find((component) => component.designator === "X10").notes =
+    "Special installation note";
+  const special = report.buildHarnessReportModel(project, SAFE_SVG);
+  assert.equal(
+    special.connectors.find((connector) => connector.designator === "X10").compact,
+    false,
+  );
+  const specialHtml = report.renderHarnessReportHtml(special);
+  assert.match(specialHtml, /<h3>X10 <span>Remote connector<\/span><\/h3>/);
+  assert.match(specialHtml, /Special installation note/);
+});
+
+test("Twisted Pairs restores member colors while bundle detail keeps local context", () => {
+  const project = realisticProject();
+  const bundle = component("bundle", "bundle-pair", "B1");
+  bundle.wireCount = 2;
+  bundle.wireLabels = ["DATA+", "DATA-"];
+  bundle.colors = ["BUWH", "WHBU"];
+  project.components.push(bundle);
+  project.twistedPairs.push({
+    id: "tp-bundle",
+    designator: "TP1",
+    members: [
+      { kind: "bundle-conductor", bundleId: bundle.id, conductorId: bundle.conductorIds[0] },
+      { kind: "bundle-conductor", bundleId: bundle.id, conductorId: bundle.conductorIds[1] },
+    ],
+    twistPitchMm: 25,
+    twistDirection: "Z",
+  });
+  const html = report.renderHarnessReportHtml(
+    report.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  const pairs = html.match(
+    /<section class="report-section" id="twisted-pairs">([\s\S]*?)<\/section>/,
+  )?.[1];
+  for (const heading of [
+    "Pair",
+    "Member A",
+    "Member A color",
+    "Member B",
+    "Member B color",
+    "Pitch",
+    "Direction",
+  ]) {
+    assert.match(pairs, new RegExp(`<th>${heading}<\\/th>`));
+  }
+  assert.match(pairs, /Blue \/ White \(BUWH\)/);
+  assert.match(pairs, /White \/ Blue \(WHBU\)/);
+  assert.match(pairs, /linear-gradient\(to bottom, #3f74b8 0 34%, #f5f5f1/);
+  assert.match(pairs, /linear-gradient\(to bottom, #f5f5f1 0 34%, #3f74b8/);
+  const conductors = html.match(
+    /<article class="cable-components bundle-conductors">([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.match(conductors, /<th>Color<\/th>/);
+  assert.match(conductors, /<th>Twisted pair<\/th>/);
+  assert.match(conductors, /Blue \/ White \(BUWH\)/);
+  assert.match(conductors, /TP1 \/ B1:DATA-/);
+});
+
+test("report-only BOM designator compression is safe and leaves CSV raw", () => {
+  assert.equal(
+    report.formatReportDesignators(["J1:1", "J1:2", "J1:3", "J1:4"]),
+    "J1:1–4",
+  );
+  assert.equal(report.formatReportDesignators(["W1", "W2", "W3"]), "W1–W3");
+  assert.equal(
+    report.formatReportDesignators(["J1:1", "J1:3"]),
+    "J1:1, J1:3",
+  );
+  assert.equal(
+    report.formatReportDesignators(["W1", "W2", "W4"]),
+    "W1–W2, W4",
+  );
+  assert.equal(report.formatReportDesignators(["J1", "J2"]), "J1, J2");
+  const rows = bom.buildBomRows(realisticProject());
+  const before = structuredClone(rows);
+  const csv = bom.serializeBomCsv(rows);
+  report.formatReportDesignators(["W1", "W2", "W3"]);
+  assert.deepEqual(rows, before);
+  assert.match(csv, /X1:1, X2:1/);
+  assert.doesNotMatch(csv, /X1:1–X2:1/);
 });
 
 test("HTML BOM renders shared quantities and natural designators", () => {

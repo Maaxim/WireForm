@@ -183,16 +183,31 @@ test("shared report model keeps physical pin, label, and conductor signal separa
   assert.equal(report.terminations[2].stripLength, "7 mm");
 
   const html = htmlReport.renderHarnessReportHtml(report);
-  assert.match(html, />Pin<\/th><th>Label<\/th><th>Signal<\/th>/);
-  assert.match(html, />B1<\/td><td>FAN_PWM<\/td>/);
+  const connectorSection = html.match(
+    /<article class="connector-card"[^>]*>([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.match(connectorSection, />Pin<\/th><th>Label<\/th><th>Wire \/ Conductor<\/th><th>Color<\/th>/);
+  assert.doesNotMatch(connectorSection, /<th>Signal<\/th>/);
+  assert.match(connectorSection, />B1<\/td><td>W1 \/ cond\. 3<\/td>/);
   assert.match(html, />Pin label<\/th>/);
+  assert.match(html, /FAN_PWM/);
 
   const pdf = pdfReport.buildHarnessPdfDocument(report);
-  const text = allText(pdf.content);
-  assert.ok(text.indexOf("Pin") < text.indexOf("Label"));
-  assert.ok(text.indexOf("Label") < text.indexOf("Signal"));
-  assert.match(text, /B1/);
-  assert.match(text, /FAN_PWM/);
+  const pinoutTables = [];
+  visit(pdf.content, (item) => {
+    const headings = item?.table?.body?.[0]?.map((cell) => cell.text) ?? [];
+    if (headings.includes("Wire / Conductor") && headings.includes("Color")) {
+      pinoutTables.push(item);
+    }
+  });
+  assert.equal(pinoutTables.length, 1);
+  assert.deepEqual(
+    pinoutTables[0].table.body[0].map((cell) => cell.text),
+    ["Pin", "Label", "Wire / Conductor", "Color"],
+  );
+  assert.match(allText(pinoutTables[0]), /B1/);
+  assert.match(allText(pinoutTables[0]), /W1 \/ cond\. 3/);
+  assert.match(allText(pdf.content), /FAN_PWM/);
 });
 
 test("duplicate non-empty labels warn case-insensitively while blanks and symbols are valid", () => {

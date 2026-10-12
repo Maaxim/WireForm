@@ -7,13 +7,13 @@ import type {
 } from "pdfmake/interfaces";
 import {
   formatBomQuantity,
-  naturalCompare,
   sortBomRows,
   type BomApprovedAlternative,
   type BomRow,
 } from "./bom.ts";
 import { formatApprovedAlternatives } from "./approved-alternatives.ts";
 import {
+  formatReportDesignators,
   htmlReportFilenameForTitle,
   type HarnessReportModel,
   type ReportCable,
@@ -305,9 +305,11 @@ function pdfConnectionMappingConductorCell(
 const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
   { heading: "Pin", value: (row) => row.pin, width: 24 },
   { heading: "Label", value: (row) => row.label, optional: true },
-  { heading: "Signal", value: (row) => row.signal, optional: true },
-  { heading: "Wire", value: (row) => row.cable, optional: true },
-  { heading: "Cond.", value: (row) => row.conductor, optional: true },
+  {
+    heading: "Wire / Conductor",
+    value: (row) => row.wireConductor,
+    optional: true,
+  },
   {
     heading: "Color",
     value: (row) => row.color,
@@ -315,10 +317,6 @@ const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
     width: 105,
     optional: true,
   },
-  { heading: "Size", value: (row) => row.gauge, width: 48, optional: true },
-  { heading: "Contact mfr.", value: (row) => row.contactManufacturer, optional: true },
-  { heading: "Contact MPN", value: (row) => row.contactMpn, optional: true },
-  { heading: "Seal PN", value: (row) => row.sealPn, optional: true },
 ];
 
 const CONNECTOR_COMPONENT_COLUMNS: Array<PdfColumn<ReportConnectorAdditionalComponent>> = [
@@ -338,9 +336,7 @@ const CABLE_COMPONENT_COLUMNS: Array<PdfColumn<ReportCableAdditionalComponent>> 
   { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
   { heading: "MPN", value: (row) => row.mpn, optional: true },
   { heading: "Description", value: (row) => row.description, optional: true },
-  { heading: "Base", value: (row) => row.baseQuantity, width: 30, numeric: true },
-  { heading: "Mode", value: (row) => row.quantityMode, width: 62 },
-  { heading: "Calculated", value: (row) => row.calculatedQuantity, width: 45, numeric: true },
+  { heading: "Qty", value: (row) => row.calculatedQuantity, width: 35, numeric: true },
   { heading: "Unit", value: (row) => row.unit, width: 30 },
   { heading: "Placement", value: (row) => row.placement, optional: true },
 ];
@@ -402,7 +398,7 @@ function connectorContent(
   return [
     { stack: [subsection(connector.designator), overview], unbreakable: true },
     ...alternativesTable(connector.approvedAlternatives),
-    subsection("Pins / Terminations"),
+    subsection("Pinout"),
     table(connector.pins, PIN_COLUMNS, "No pins are defined."),
     ...(connector.additionalComponents.length
       ? [
@@ -470,6 +466,19 @@ const CONDUCTOR_COLUMNS: Array<PdfColumn<ReportConductor>> = [
   { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
 ];
 
+const COMPACT_CONNECTOR_COLUMNS: Array<PdfColumn<ReportConnector>> = [
+  { heading: "Designator", value: (row) => row.designator, width: 55 },
+  { heading: "Type", value: (row) => row.kind, width: 50 },
+  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
+  { heading: "MPN", value: (row) => row.mpn, optional: true },
+  { heading: "Description", value: (row) => row.name, optional: true },
+  {
+    heading: "Pin label",
+    value: (row) => row.pins[0]?.label ?? "",
+    optional: true,
+  },
+];
+
 function cableDetails(cable: ReportCable): Content[] {
   const showConductors = cable.kind === "bundle" && cable.conductors.length > 0;
   if (
@@ -488,7 +497,7 @@ function cableDetails(cable: ReportCable): Content[] {
     ...alternativesTable(cable.approvedAlternatives),
     ...(cable.additionalComponents.length
       ? [
-          subsection("Additional Components"),
+          subsection(`${cable.designator} Additional Components`),
           table(cable.additionalComponents, CABLE_COMPONENT_COLUMNS, ""),
         ]
       : []),
@@ -543,7 +552,7 @@ const BOM_COLUMNS: Array<PdfColumn<BomRow>> = [
   { heading: "Unit", value: (row) => row.unit, width: 32 },
   {
     heading: "Designators",
-    value: (row) => [...row.designators].sort(naturalCompare).join(", "),
+    value: (row) => formatReportDesignators(row.designators),
     optional: true,
   },
   {
@@ -680,8 +689,13 @@ export function buildHarnessPdfDocument(
     pageOrientation: "landscape",
   });
   if (model.connectors.length) {
-    for (const connector of model.connectors) {
+    for (const connector of model.connectors.filter((item) => !item.compact)) {
       content.push(...connectorContent(connector, includeImages));
+    }
+    const compactConnectors = model.connectors.filter((item) => item.compact);
+    if (compactConnectors.length) {
+      content.push(subsection("Simple One-Pin Connectors"));
+      content.push(table(compactConnectors, COMPACT_CONNECTOR_COLUMNS, ""));
     }
   } else {
     content.push({ text: "No connectors are defined.", style: "empty" });
