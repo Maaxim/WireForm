@@ -393,21 +393,40 @@ test("HTML cable summary omits endpoint lists and keeps Connection Mapping autho
 });
 
 test("connector pinouts stay local while Terminations retain manufacturing data", () => {
-  const value = report.buildHarnessReportModel(realisticProject(), SAFE_SVG);
+  const project = realisticProject();
+  project.components.find((item) => item.id === "w1").colors = ["OGWH", "GNWH"];
+  const value = report.buildHarnessReportModel(project, SAFE_SVG);
   const html = report.renderHarnessReportHtml(value);
   const x1 = html.match(
     /<article class="connector-card" id="connector-1">([\s\S]*?)<\/article>/,
   )?.[1];
   assert.ok(x1);
-  for (const heading of ["Pin", "Label", "Wire / Conductor", "Color"]) {
-    assert.match(x1, new RegExp(`<th>${heading.replace("/", "\\/")}<\\/th>`));
-  }
+  assert.match(
+    x1,
+    /<table class="pinout-table"><thead><tr><th class="pinout-pin">Pin<\/th><th class="pinout-label">Label<\/th><th class="pinout-wire">Wire \/ Conductor<\/th><th class="pinout-color">Color<\/th>/,
+  );
   assert.doesNotMatch(
     x1,
     /<th>(?:Wire size|Contact manufacturer|Contact MPN|Seal PN|Strip length)<\/th>/,
   );
   assert.match(x1, /W1 \/ cond\. 1/);
-  assert.match(x1, /Red \(RD\)/);
+  assert.match(x1, /Orange \/ White \(OGWH\)/);
+  assert.match(x1, /Green \/ White \(GNWH\)/);
+  assert.match(
+    x1,
+    /<td class="pinout-color"><span class="wire-color-value"><span class="wire-color-swatch"[^>]*><\/span><span>Orange \/ White \(OGWH\)<\/span><\/span><\/td>/,
+  );
+  assert.match(html, /\.pinout-table \.pinout-pin\{width:7%\}/);
+  assert.match(html, /\.pinout-table \.pinout-label\{width:15%\}/);
+  assert.match(html, /\.pinout-table \.pinout-color\{width:28%\}/);
+  assert.match(
+    html,
+    /\.pinout-table \.wire-color-value\{min-width:0;max-width:100%;white-space:nowrap\}/,
+  );
+  assert.match(
+    html,
+    /@media\(max-width:700px\)[\s\S]*\.pinout-table \.wire-color-value\{white-space:normal\}\}/,
+  );
   const terminations = html.match(
     /<section class="report-section" id="terminations">([\s\S]*?)<\/section>/,
   )?.[1];

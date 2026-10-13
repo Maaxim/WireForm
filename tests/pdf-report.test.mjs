@@ -277,7 +277,10 @@ test("PDF cable summary omits endpoint lists while retaining physical metadata",
 });
 
 test("PDF pinout is compact while Terminations remains authoritative", () => {
-  const report = htmlReport.buildHarnessReportModel(projectFixture(), SAFE_SVG);
+  const project = projectFixture();
+  project.components.find((item) => item.id === "w1").colors = ["OGWH"];
+  project.components.find((item) => item.id === "w2").colors = ["GNWH"];
+  const report = htmlReport.buildHarnessReportModel(project, SAFE_SVG);
   const definition = pdfReport.buildHarnessPdfDocument(report);
   const tables = findNodes(definition.content, (node) => node.table?.body);
   const pinout = tables.find((node) => {
@@ -289,8 +292,15 @@ test("PDF pinout is compact while Terminations remains authoritative", () => {
     pinout.table.body[0].map((cell) => cell.text),
     ["Pin", "Label", "Wire / Conductor", "Color"],
   );
+  assert.deepEqual(pinout.table.widths, [28, 72, "*", 170]);
+  const firstColorCell = pinout.table.body[1][3];
+  assert.equal(firstColorCell.columns[0].width, 28);
+  assert.equal(firstColorCell.columns[1].text, "Orange / White (OGWH)");
+  assert.equal(firstColorCell.columns[1].noWrap, true);
+  assert.equal(firstColorCell.columns[0].canvas.length, 3);
   assert.match(allText(pinout), /W1/);
-  assert.match(allText(pinout), /White \(WH\)/);
+  assert.match(allText(pinout), /Orange \/ White \(OGWH\)/);
+  assert.match(allText(pinout), /Green \/ White \(GNWH\)/);
   assert.doesNotMatch(allText(pinout), /24 AWG|CONTACT-1|SEAL-1|5 mm/);
 
   const terminations = tables.find((node) =>

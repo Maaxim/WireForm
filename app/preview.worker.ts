@@ -1,5 +1,7 @@
 import { instance, type Viz } from "@viz-js/viz";
 import { prepareHarnessDiagramDot } from "./diagram-annotations.ts";
+import type { ConnectorShieldDiagramRoute } from "./diagram-annotations.ts";
+import type { ShieldDiagramStyle } from "./shield-routing.ts";
 import {
   PYODIDE_VERSION,
   PYTHON_GRAPHVIZ_WHEEL_PATH,
@@ -42,6 +44,8 @@ interface RenderRequest {
     height: number;
     caption: string;
   }>;
+  connectorShieldRoutes?: ConnectorShieldDiagramRoute[];
+  shieldStyles?: ShieldDiagramStyle[];
 }
 
 let runtimePromise:
@@ -195,7 +199,11 @@ wireform_harness.graph.source
       pyodide.globals.delete("WIREFORM_DOCUMENT");
     }
 
-    const diagramDot = prepareHarnessDiagramDot(dot);
+    const diagramDot = prepareHarnessDiagramDot(
+      dot,
+      message.connectorShieldRoutes,
+      message.shieldStyles,
+    );
     let svg = viz.renderString(diagramDot, {
       engine: "dot",
       format: "svg",

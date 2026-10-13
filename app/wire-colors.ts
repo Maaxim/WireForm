@@ -46,6 +46,7 @@ const COLOR_BY_CODE = new Map(
   WIRE_COLOR_OPTIONS.map((color) => [color.code, color]),
 );
 const FALLBACK_COLOR = "#70808c";
+export const DEFAULT_SHIELD_COLOR_CODE = "BK";
 
 export function parseWireColor(value: string | undefined): ParsedWireColor {
   const code = value?.trim().toUpperCase() ?? "";
@@ -105,10 +106,45 @@ export function getWireColorCssBackground(value: string | undefined) {
     : primary;
 }
 
+/** Returns a supported shield color while retaining the legacy dark fallback. */
+export function getShieldColorCode(value: string | undefined) {
+  return value?.trim().toUpperCase() || DEFAULT_SHIELD_COLOR_CODE;
+}
+
+/**
+ * Graphviz renders colon-separated colors as parallel vector strokes. The
+ * dark outside strokes keep light colors visible without changing the color
+ * semantics used by the editor's layered wire renderer.
+ */
+export function getWireColorGraphvizStroke(value: string | undefined) {
+  const parsed = parseWireColor(value);
+  const primary = parsed.primary?.hex ?? FALLBACK_COLOR;
+  const secondary = parsed.secondary?.hex;
+  return secondary
+    ? `#25292d:${primary}:${secondary}:${primary}:#25292d`
+    : `#25292d:${primary}:${primary}:#25292d`;
+}
+
 export function validateWireColors(project: HarnessProject) {
   const warnings: string[] = [];
   for (const component of project.components) {
     if (!CABLE_KINDS.includes(component.kind)) continue;
+    if (component.shield && component.shieldColor?.trim()) {
+      const raw = component.shieldColor.trim();
+      const parsed = parseWireColor(raw);
+      if (!parsed.supported) {
+        warnings.push(
+          `${component.designator} shield uses unsupported or malformed wire color code "${raw}"; the value is preserved and the normal fallback color will be rendered.`,
+        );
+      } else if (
+        parsed.secondaryCode &&
+        parsed.primaryCode === parsed.secondaryCode
+      ) {
+        warnings.push(
+          `${component.designator} shield repeats ${parsed.primaryCode} as both primary and secondary color; use the solid code instead.`,
+        );
+      }
+    }
     for (let index = 0; index < component.wireCount; index += 1) {
       const raw = component.colors[index]?.trim() ?? "";
       const label = `${component.designator} conductor ${index + 1}`;

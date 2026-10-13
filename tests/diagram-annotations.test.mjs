@@ -326,7 +326,10 @@ test("worker and live preview are wired to the shared annotation pipeline", asyn
   const workerSource = await readFile(new URL("../app/preview.worker.ts", import.meta.url), "utf8");
   const studioSource = await readFile(new URL("../app/HarnessStudio.tsx", import.meta.url), "utf8");
   const pdfSource = await readFile(new URL("../app/pdf-report.ts", import.meta.url), "utf8");
-  assert.match(workerSource, /prepareHarnessDiagramDot\(dot\)/);
+  assert.match(
+    workerSource,
+    /prepareHarnessDiagramDot\([\s\S]*?dot,[\s\S]*?message\.connectorShieldRoutes,[\s\S]*?message\.shieldStyles/,
+  );
   assert.match(studioSource, /prepareHarnessDiagramSvg\(project, previewSvg\)/);
   assert.doesNotMatch(pdfSource, /addTwistedPairAnnotations|wireform-twisted-pair-marker/);
 });

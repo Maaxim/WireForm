@@ -7,6 +7,7 @@ import {
   type TopologyLink,
   type WireTermination,
 } from "./model.ts";
+import { isConnectorShieldPort } from "./connector-shields.ts";
 import { additionalComponentToWireViz } from "./additional-components.ts";
 
 const PART_FIELDS = [
@@ -121,9 +122,11 @@ export function isPhysicalTerminationLink(
   const { fromNode, toNode } = endpointKinds(project, link);
   if (!fromNode || !toNode) return false;
   const fromConnector =
-    CONNECTOR_KINDS.includes(fromNode.kind) && link.from.portId.startsWith("pin:");
+    CONNECTOR_KINDS.includes(fromNode.kind) &&
+    (link.from.portId.startsWith("pin:") || isConnectorShieldPort(link.from));
   const toConnector =
-    CONNECTOR_KINDS.includes(toNode.kind) && link.to.portId.startsWith("pin:");
+    CONNECTOR_KINDS.includes(toNode.kind) &&
+    (link.to.portId.startsWith("pin:") || isConnectorShieldPort(link.to));
   const fromConductor =
     CABLE_KINDS.includes(fromNode.kind) &&
     (link.from.portId.startsWith("wire:") || link.from.portId === "shield");
@@ -147,7 +150,7 @@ export function validateTerminationMetadata(project: HarnessProject) {
     if (!termination) continue;
     if (!isPhysicalTerminationLink(project, link)) {
       warnings.push(
-        `Connection ${link.id} has termination metadata but is not a connector-pin to conductor-end link.`,
+        `Connection ${link.id} has termination metadata but is not a connector-pin or connector-shield to conductor-end link.`,
       );
     }
     if (

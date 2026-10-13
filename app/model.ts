@@ -51,6 +51,15 @@ export interface WireTermination {
   notes?: string;
 }
 
+export interface ConnectorShieldTermination {
+  id: string;
+  label?: string;
+  manufacturer?: string;
+  mpn?: string;
+  stripLength?: string;
+  note?: string;
+}
+
 export type AdditionalComponentScope = "cable" | "wire" | "termination";
 export type AdditionalComponentEnd = "from" | "to" | "both";
 
@@ -99,6 +108,7 @@ export interface HarnessComponent {
   gauge: string;
   length: string;
   shield: boolean;
+  shieldColor?: string;
   loops: string;
   manufacturer: string;
   mpn: string;
@@ -108,6 +118,7 @@ export interface HarnessComponent {
   photo?: ConnectorPhoto;
   additionalComponents?: ConnectorAdditionalComponent[];
   approvedAlternatives?: ApprovedPartAlternative[];
+  shieldTerminations?: ConnectorShieldTermination[];
 }
 
 export interface PortRef {
@@ -244,6 +255,22 @@ export function createConductorId() {
 
 export function createHarnessImageId() {
   return createId("harness-image");
+}
+
+export function createConnectorShieldTerminationId() {
+  return createId("connector-shield");
+}
+
+export const CONNECTOR_SHIELD_PORT_PREFIX = "connector-shield:";
+
+export function connectorShieldPortId(shieldTerminationId: string) {
+  return `${CONNECTOR_SHIELD_PORT_PREFIX}${shieldTerminationId}`;
+}
+
+export function connectorShieldTerminationIdFromPort(portId: string) {
+  return portId.startsWith(CONNECTOR_SHIELD_PORT_PREFIX)
+    ? portId.slice(CONNECTOR_SHIELD_PORT_PREFIX.length)
+    : undefined;
 }
 
 export function harnessImageMimeTypeFromDataUrl(
@@ -490,6 +517,34 @@ export function normalizeApprovedPartAlternatives(
   return alternatives.length ? alternatives : undefined;
 }
 
+export function normalizeConnectorShieldTerminations(
+  value: unknown,
+): ConnectorShieldTermination[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const usedIds = new Set<string>();
+  const terminations = value.slice(0, 64).flatMap((entry) => {
+    const source = recordValue(entry);
+    if (!source) return [];
+    let id = textValue(source.id, "", 240);
+    if (!id || usedIds.has(id)) id = createConnectorShieldTerminationId();
+    usedIds.add(id);
+    const label = nonEmptyText(source.label, 300);
+    const manufacturer = nonEmptyText(source.manufacturer, 500);
+    const mpn = nonEmptyText(source.mpn, 500);
+    const stripLength = nonEmptyText(source.stripLength, 160);
+    const note = nonEmptyText(source.note, MAX_TEXT);
+    return [{
+      id,
+      ...(label ? { label } : {}),
+      ...(manufacturer ? { manufacturer } : {}),
+      ...(mpn ? { mpn } : {}),
+      ...(stripLength ? { stripLength } : {}),
+      ...(note ? { note } : {}),
+    }];
+  });
+  return terminations.length ? terminations : undefined;
+}
+
 export function componentGroup(kind: ComponentKind): "connector" | "cable" {
   return CONNECTOR_KINDS.includes(kind) ? "connector" : "cable";
 }
@@ -594,6 +649,12 @@ function normalizeComponent(
   const approvedAlternatives = normalizeApprovedPartAlternatives(
     source.approvedAlternatives,
   );
+  const shieldTerminations = CONNECTOR_KINDS.includes(kind)
+    ? normalizeConnectorShieldTerminations(source.shieldTerminations)
+    : undefined;
+  const shieldColor = CABLE_KINDS.includes(kind)
+    ? nonEmptyText(source.shieldColor, 40)?.toUpperCase()
+    : undefined;
   const rawConductorIds = stringList(source.conductorIds).slice(0, wireCount);
   const conductorIds: string[] = [];
   const usedConductorIds = new Set<string>();
@@ -639,6 +700,7 @@ function normalizeComponent(
     gauge: textValue(source.gauge, base.gauge, 160),
     length: textValue(source.length, base.length, 160),
     shield: Boolean(source.shield),
+    ...(shieldColor ? { shieldColor } : {}),
     loops: textValue(source.loops, "", 1_000),
     manufacturer: textValue(source.manufacturer, "", 500),
     mpn: textValue(source.mpn, "", 500),
@@ -648,6 +710,7 @@ function normalizeComponent(
     ...(photo ? { photo } : {}),
     ...(additionalComponents ? { additionalComponents } : {}),
     ...(approvedAlternatives ? { approvedAlternatives } : {}),
+    ...(shieldTerminations ? { shieldTerminations } : {}),
   };
 }
 
@@ -661,7 +724,7 @@ function normalizePort(
   const side = source?.side;
   if (
     !nodes.has(nodeId) ||
-    !/^(?:pin|wire):[1-9][0-9]*$|^shield$/.test(portId) ||
+    !/^(?:pin|wire):[1-9][0-9]*$|^shield$|^connector-shield:.+$/.test(portId) ||
     (side !== "left" && side !== "right")
   ) {
     return undefined;
@@ -675,8 +738,17 @@ function normalizePort(
     if (!CABLE_KINDS.includes(node.kind)) return undefined;
     const ordinal = Number(portId.slice("wire:".length));
     if (ordinal > node.wireCount) return undefined;
-  } else if (!CABLE_KINDS.includes(node.kind) || !node.shield) {
-    return undefined;
+  } else if (portId === "shield") {
+    if (!CABLE_KINDS.includes(node.kind) || !node.shield) return undefined;
+  } else {
+    const shieldTerminationId = connectorShieldTerminationIdFromPort(portId);
+    if (
+      !CONNECTOR_KINDS.includes(node.kind) ||
+      !shieldTerminationId ||
+      !(node.shieldTerminations ?? []).some(
+        (termination) => termination.id === shieldTerminationId,
+      )
+    ) return undefined;
   }
   return { nodeId, portId, side };
 }
@@ -828,16 +900,19 @@ export function remapTopologyLink(
   link: TopologyLink,
   id: string,
   nodeIds: ReadonlyMap<string, string>,
+  portIds: ReadonlyMap<string, string> = new Map(),
 ): TopologyLink {
   return {
     id,
     from: {
       ...link.from,
       nodeId: nodeIds.get(link.from.nodeId) ?? link.from.nodeId,
+      portId: portIds.get(`${link.from.nodeId}/${link.from.portId}`) ?? link.from.portId,
     },
     to: {
       ...link.to,
       nodeId: nodeIds.get(link.to.nodeId) ?? link.to.nodeId,
+      portId: portIds.get(`${link.to.nodeId}/${link.to.portId}`) ?? link.to.portId,
     },
     ...(link.termination
       ? { termination: structuredClone(link.termination) }

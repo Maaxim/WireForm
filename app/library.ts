@@ -5,6 +5,7 @@ import {
   makeComponent,
   normalizeAdditionalComponents,
   normalizeApprovedPartAlternatives,
+  normalizeConnectorShieldTerminations,
   type ComponentKind,
   type HarnessComponent,
   type TwistedPair,
@@ -14,6 +15,7 @@ import {
   cloneApprovedAlternativesWithNewIds,
   supportsApprovedAlternatives,
 } from "./approved-alternatives.ts";
+import { cloneConnectorShieldTerminationsWithNewIds } from "./connector-shields.ts";
 
 export const LIBRARY_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const LIBRARY_FILE_FORMAT = "wireviz-gui-component-library";
@@ -251,6 +253,9 @@ function normalizedTemplate(
   const approvedAlternatives = supportsApprovedAlternatives(kind)
     ? normalizeApprovedPartAlternatives(componentSource.approvedAlternatives)
     : undefined;
+  const shieldTerminations = CONNECTOR_KINDS.includes(kind)
+    ? normalizeConnectorShieldTerminations(componentSource.shieldTerminations)
+    : undefined;
   const timestamp = now();
   const templatePairs: TwistedPair[] = Array.isArray(source.twistedPairs)
     ? source.twistedPairs.flatMap((value, pairIndex) => {
@@ -326,6 +331,15 @@ function normalizedTemplate(
       gauge: textValue(componentSource.gauge, base.gauge, 160),
       length: textValue(componentSource.length, base.length, 160),
       shield: Boolean(componentSource.shield),
+      ...(typeof componentSource.shieldColor === "string" &&
+      componentSource.shieldColor.trim()
+        ? {
+            shieldColor: componentSource.shieldColor
+              .trim()
+              .slice(0, 40)
+              .toUpperCase(),
+          }
+        : {}),
       loops: textValue(componentSource.loops, "", 1_000),
       manufacturer: textValue(componentSource.manufacturer, "", 500),
       mpn: textValue(componentSource.mpn, "", 500),
@@ -335,6 +349,7 @@ function normalizedTemplate(
       ...(photo ? { photo } : {}),
       ...(additionalComponents ? { additionalComponents } : {}),
       ...(approvedAlternatives ? { approvedAlternatives } : {}),
+      ...(shieldTerminations ? { shieldTerminations } : {}),
     },
     ...(templatePairs.length ? { twistedPairs: templatePairs } : {}),
     createdAt: textValue(source.createdAt, timestamp, 80),
@@ -490,6 +505,9 @@ export function instantiateTemplateWithRelationships(
   component.approvedAlternatives = cloneApprovedAlternativesWithNewIds(
     component.approvedAlternatives,
   );
+  component.shieldTerminations = cloneConnectorShieldTerminationsWithNewIds(
+    component.shieldTerminations,
+  ).terminations;
   const oldConductorIds = [...component.conductorIds];
   component.conductorIds = component.conductorIds.map(() => createId("conductor"));
   const conductorIds = new Map(

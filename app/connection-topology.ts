@@ -9,6 +9,10 @@ import {
 } from "./model.ts";
 import { getConnectorPinLabel, getPinReportLabel } from "./pin-labels.ts";
 import {
+  connectorShieldLabel,
+  findConnectorShieldTermination,
+} from "./connector-shields.ts";
+import {
   findTwistedPairForBundleConductor,
   findTwistedPairForWire,
 } from "./twisted-pair.ts";
@@ -69,17 +73,18 @@ function unresolvedEndpoint(): ResolvedConnectionEndpoint {
   };
 }
 
-function resolveConnectorEndpoint(
+export function resolveConnectorEndpoint(
   components: ReadonlyMap<string, HarnessComponent>,
   port: PortRef,
 ): ResolvedConnectionEndpoint {
   const connector = components.get(port.nodeId);
   const pin = portOrdinal(port.portId, "pin");
+  const shieldTermination = findConnectorShieldTermination(connector, port.portId);
   if (
     !connector ||
     !CONNECTOR_KINDS.includes(connector.kind) ||
-    !pin ||
-    pin > connector.pinCount
+    (!pin && !shieldTermination) ||
+    (pin !== undefined && pin > connector.pinCount)
   ) {
     return unresolvedEndpoint();
   }
@@ -87,9 +92,11 @@ function resolveConnectorEndpoint(
     status: "connected",
     connectorId: connector.id,
     connectorDesignator: connector.designator,
-    physicalPin: pin,
-    pinLabel: getConnectorPinLabel(connector, pin),
-    pinDisplay: getPinReportLabel(connector, pin),
+    ...(pin ? { physicalPin: pin } : {}),
+    pinLabel: pin ? getConnectorPinLabel(connector, pin) : "",
+    pinDisplay: pin
+      ? getPinReportLabel(connector, pin)
+      : connectorShieldLabel(shieldTermination),
   };
 }
 
@@ -117,7 +124,7 @@ function endpointTrace(endpoint: ResolvedConnectionEndpoint) {
   return `${endpoint.connectorDesignator}:${endpoint.pinDisplay}`;
 }
 
-function normalizedEndpoints(
+export function normalizedConnectionEndpoints(
   endpoints: ResolvedConnectionEndpoint[],
 ): [ResolvedConnectionEndpoint, ResolvedConnectionEndpoint] {
   const sorted = [...endpoints].sort(compareConnectionEndpoints);
@@ -267,7 +274,7 @@ export function resolvePhysicalConnections(
     .flatMap((component) =>
       Array.from({ length: component.wireCount }, (_, conductorIndex) => {
         const conductor = conductorModel(component, conductorIndex);
-        const [from, to] = normalizedEndpoints(
+    const [from, to] = normalizedConnectionEndpoints(
           conductorEndpoints(
             project,
             components,

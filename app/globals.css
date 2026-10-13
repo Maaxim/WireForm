@@ -659,6 +659,19 @@ select:focus-visible {
   stroke-width: 14;
 }
 
+/* Shield visuals are ~55% of a normal conductor; the 14px hit path is shared. */
+.connection-line.shield-connection .connection-outline {
+  stroke-width: 3;
+}
+
+.connection-line.shield-connection .connection-visible {
+  stroke-width: 1.9;
+}
+
+.connection-line.shield-connection .connection-stripe {
+  stroke-width: 0.75;
+}
+
 .connection-line:hover .connection-visible,
 .connection-line.hovered .connection-visible {
   stroke-width: 4.25;
@@ -675,6 +688,21 @@ select:focus-visible {
   stroke: var(--danger);
   stroke-width: 6;
   opacity: 0.8;
+}
+
+.connection-line.shield-connection:hover .connection-visible,
+.connection-line.shield-connection.hovered .connection-visible {
+  stroke-width: 2.35;
+}
+
+.connection-line.shield-connection:hover .connection-stripe,
+.connection-line.shield-connection.hovered .connection-stripe {
+  stroke-width: 0.95;
+}
+
+.connection-line.shield-connection:hover .connection-outline,
+.connection-line.shield-connection.hovered .connection-outline {
+  stroke-width: 3.5;
 }
 
 .connection-hover-tooltip {
@@ -1662,6 +1690,56 @@ select:focus-visible {
   font-size: 8px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.connector-shield-editor {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e7e6;
+}
+
+.connector-shield-editor .section-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.connector-shield-editor .section-heading-row h4 {
+  margin: 0;
+  color: #4f6068;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connector-shield-editor .compact-button {
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: #176b70;
+  background: white;
+  border: 1px solid #bededb;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.connector-shield-editor > .termination-row {
+  margin-top: 7px;
+  padding: 9px 8px;
+  background: #fbfcfb;
+  border: 1px solid #dce3e2;
+  border-radius: 5px;
+}
+
+.connector-shield-editor > .termination-row .danger-button {
+  width: 100%;
+  margin-top: 3px;
 }
 
 .termination-list {

@@ -111,7 +111,10 @@ import {
   PROJECT_SCHEMA_VERSION,
   cloneProject,
   componentGroup,
+  connectorShieldPortId,
+  connectorShieldTerminationIdFromPort,
   createConductorId,
+  createConnectorShieldTerminationId,
   createEmptyProject,
   makeComponent,
   parseProjectFile,
@@ -121,6 +124,7 @@ import {
   type AdditionalComponentPlacement,
   type ApprovedPartAlternative,
   type ComponentKind,
+  type ConnectorShieldTermination,
   type HarnessComponent,
   type HarnessImage,
   type HarnessProject,
@@ -129,6 +133,12 @@ import {
   type TopologyLink,
   type TwistedPair,
 } from "./model";
+import {
+  cloneConnectorShieldTerminationsWithNewIds,
+  connectorShieldLabel,
+  findConnectorShieldTermination,
+  validateConnectorShieldTerminations,
+} from "./connector-shields";
 import {
   getConnectedPinSignal,
   getConnectorPinLabel,
@@ -144,6 +154,11 @@ import {
   readLocalDocument,
   writeLocalDocument,
 } from "./storage";
+import {
+  buildConnectorShieldDiagramRoutes,
+  buildShieldDiagramStyles,
+  buildWireVizShieldConnections,
+} from "./shield-routing";
 import { WIREVIZ_VERSION } from "./vendor";
 import {
   applyContactToConnectedPins,
@@ -447,6 +462,98 @@ function WireColorSwatch({
   );
 }
 
+function WireColorEditor({
+  code,
+  onChange,
+  target = "wire",
+}: {
+  code: string;
+  onChange: (code: string) => void;
+  target?: "wire" | "shield";
+}) {
+  const parsed = parseWireColor(code);
+  const primaryValue = parsed.primary?.code ?? "__unknown";
+  const secondaryValue = parsed.secondary
+    ? parsed.secondary.code
+    : parsed.supported
+      ? ""
+      : "__unknown";
+  const primaryAriaLabel =
+    target === "shield" ? "Primary shield color" : "Primary wire color";
+  const secondaryAriaLabel =
+    target === "shield" ? "Secondary shield color" : "Secondary wire color";
+  return (
+    <div className="wire-color-editor" data-color-target={target}>
+      <div className="field-row">
+        <Field label="Primary color">
+          <div className="select-wrap">
+            <select
+              aria-label={primaryAriaLabel}
+              value={primaryValue}
+              onChange={(event) =>
+                onChange(
+                  formatWireColor(
+                    event.target.value,
+                    parsed.secondary?.code,
+                  ),
+                )
+              }
+            >
+              {!parsed.primary && (
+                <option value="__unknown" disabled>
+                  Unsupported ({parsed.code || "empty"})
+                </option>
+              )}
+              {WIRE_COLOR_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name} ({option.code})
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} />
+          </div>
+        </Field>
+        <Field label="Secondary color" hint="optional stripe">
+          <div className="select-wrap">
+            <select
+              aria-label={secondaryAriaLabel}
+              value={secondaryValue}
+              disabled={!parsed.primary}
+              onChange={(event) =>
+                onChange(
+                  formatWireColor(
+                    parsed.primary?.code ?? "BK",
+                    event.target.value || undefined,
+                  ),
+                )
+              }
+            >
+              <option value="">None</option>
+              {!parsed.supported && parsed.secondaryCode && (
+                <option value="__unknown" disabled>
+                  Unsupported ({parsed.secondaryCode})
+                </option>
+              )}
+              {WIRE_COLOR_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name} ({option.code})
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} />
+          </div>
+        </Field>
+      </div>
+      <div className="wire-color-preview">
+        <WireColorSwatch code={code} className="large" />
+        <span>{getWireColorDisplay(code)}</span>
+        <small>WireViz color code</small>
+        <code>{code}</code>
+      </div>
+    </div>
+  );
+}
+
 function naturalSort(a: string, b: string) {
   return a.localeCompare(b, undefined, {
     numeric: true,
@@ -461,7 +568,9 @@ function storageSizeLabel(bytes: number) {
 }
 
 function getNodeRows(node: HarnessComponent) {
-  if (CONNECTOR_KINDS.includes(node.kind)) return node.pinCount;
+  if (CONNECTOR_KINDS.includes(node.kind)) {
+    return node.pinCount + (node.shieldTerminations?.length ?? 0);
+  }
   return node.wireCount + (node.shield ? 1 : 0);
 }
 
@@ -489,15 +598,26 @@ function parsePortNumber(portId: string) {
 }
 
 function canonicalEndpoint(port: PortRef) {
-  const nodePort = port.portId.startsWith("pin:")
+  const nodePort =
+    port.portId.startsWith("pin:") ||
+    connectorShieldTerminationIdFromPort(port.portId)
     ? port.portId
     : `${port.portId}:${port.side}`;
   return `${port.nodeId}/${nodePort}`;
 }
 
 function nodePoint(node: HarnessComponent, port: PortRef) {
-  const isShield = port.portId === "shield";
-  const index = isShield ? node.wireCount : parsePortNumber(port.portId) - 1;
+  const connectorShieldId = connectorShieldTerminationIdFromPort(port.portId);
+  const connectorShieldIndex = connectorShieldId
+    ? (node.shieldTerminations ?? []).findIndex(
+        (termination) => termination.id === connectorShieldId,
+      )
+    : -1;
+  const index = port.portId === "shield"
+    ? node.wireCount
+    : connectorShieldIndex >= 0
+      ? node.pinCount + connectorShieldIndex
+      : parsePortNumber(port.portId) - 1;
   return {
     x: node.x + (port.side === "right" ? NODE_WIDTH : 0),
     y:
@@ -663,28 +783,7 @@ export function buildWireVizDocument(project: HarnessProject) {
     }
 
     if (cable.shield) {
-      const shieldLinks = project.links.filter((link) =>
-        [link.from, link.to].some(
-          (port) => port.nodeId === cable.id && port.portId === "shield",
-        ),
-      );
-      for (const link of shieldLinks) {
-        const other = oppositePort(link, cable.id);
-        const node = project.components.find(
-          (component) => component.id === other.nodeId,
-        );
-        if (node) {
-          const shieldEntry = { [cable.designator]: "s" };
-          const connectorEntry = {
-            [node.designator]: parsePortNumber(other.portId),
-          };
-          connections.push(
-            other.side === "left"
-              ? [connectorEntry, shieldEntry]
-              : [shieldEntry, connectorEntry],
-          );
-        }
-      }
+      connections.push(...buildWireVizShieldConnections(project, cable));
     }
   }
 
@@ -744,9 +843,11 @@ function validateProject(project: HarnessProject): ValidationResult {
   errors.push(...harnessImageIssues.errors);
   warnings.push(...harnessImageIssues.warnings);
   warnings.push(...validateConnectorPinLabels(project));
+  errors.push(...validateConnectorShieldTerminations(project));
   warnings.push(...validateWireColors(project));
 
   for (const link of project.links) {
+    let linkEndpointsValid = true;
     for (const endpoint of [link.from, link.to]) {
       const node = project.components.find(
         (component) => component.id === endpoint.nodeId,
@@ -764,10 +865,34 @@ function validateProject(project: HarnessProject): ValidationResult {
             ordinal <= node.wireCount) ||
           (endpoint.portId === "shield" &&
             CABLE_KINDS.includes(node.kind) &&
-            node.shield));
+            node.shield) ||
+          (connectorShieldTerminationIdFromPort(endpoint.portId) !== undefined &&
+            CONNECTOR_KINDS.includes(node.kind) &&
+            Boolean(findConnectorShieldTermination(node, endpoint.portId))));
       if (!valid) {
         errors.push(`Connection ${link.id} has a dangling or invalid endpoint.`);
+        linkEndpointsValid = false;
         break;
+      }
+    }
+    if (linkEndpointsValid) {
+      const connectorEndpoint = [link.from, link.to].find((endpoint) => {
+        const node = project.components.find((component) => component.id === endpoint.nodeId);
+        return Boolean(node && CONNECTOR_KINDS.includes(node.kind));
+      });
+      const cableEndpoint = [link.from, link.to].find((endpoint) => {
+        const node = project.components.find((component) => component.id === endpoint.nodeId);
+        return Boolean(node && CABLE_KINDS.includes(node.kind));
+      });
+      if (
+        connectorEndpoint &&
+        cableEndpoint &&
+        connectorShieldTerminationIdFromPort(connectorEndpoint.portId) &&
+        cableEndpoint.portId !== "shield"
+      ) {
+        errors.push(
+          `Connection ${link.id} connects a connector shield termination to a numbered conductor.`,
+        );
       }
     }
   }
@@ -937,6 +1062,14 @@ export function HarnessStudio() {
     ? connectionHoverInfoByMember.get(hoveredConnectionMember)
     : undefined;
   const wirevizDocument = useMemo(() => buildWireVizDocument(project), [project]);
+  const connectorShieldRoutes = useMemo(
+    () => buildConnectorShieldDiagramRoutes(project),
+    [project],
+  );
+  const shieldStyles = useMemo(
+    () => buildShieldDiagramStyles(project),
+    [project],
+  );
   const yaml = useMemo(
     () =>
       `# Generated by WireForm for WireViz ${WIREVIZ_VERSION}\n${YAML.stringify(
@@ -1141,6 +1274,7 @@ export function HarnessStudio() {
     const idPrefix = `copy-${Date.now().toString(36)}-${pasteSequenceRef.current}`;
     const idMap = new Map<string, string>();
     const conductorIdMap = new Map<string, string>();
+    const shieldPortIdMap = new Map<string, string>();
     clipboard.components.forEach((component, index) => {
       idMap.set(component.id, `${idPrefix}-${index}`);
       component.conductorIds.forEach((conductorId) => {
@@ -1151,6 +1285,12 @@ export function HarnessStudio() {
           createConductorId(),
         );
       });
+      const clonedShields = cloneConnectorShieldTerminationsWithNewIds(
+        component.shieldTerminations,
+      );
+      for (const [oldPortId, newPortId] of clonedShields.portIds) {
+        shieldPortIdMap.set(`${component.id}/${oldPortId}`, newPortId);
+      }
     });
 
     const usedDesignators = new Set(
@@ -1176,9 +1316,25 @@ export function HarnessStudio() {
       approvedAlternatives: cloneApprovedAlternativesWithNewIds(
         component.approvedAlternatives,
       ),
+      shieldTerminations: cloneConnectorShieldTerminationsWithNewIds(
+        component.shieldTerminations,
+      ).terminations.map((termination, index) => {
+        const old = component.shieldTerminations?.[index];
+        const mappedPort = old
+          ? shieldPortIdMap.get(
+              `${component.id}/${connectorShieldPortId(old.id)}`,
+            )
+          : undefined;
+        return mappedPort
+          ? {
+              ...termination,
+              id: connectorShieldTerminationIdFromPort(mappedPort)!,
+            }
+          : termination;
+      }),
     }));
     const pastedLinks = clipboard.links.map((link, index) =>
-      remapTopologyLink(link, `${idPrefix}-link-${index}`, idMap),
+      remapTopologyLink(link, `${idPrefix}-link-${index}`, idMap, shieldPortIdMap),
     );
     const pastedPairs = cloneTwistedPairsForPaste(
       clipboard.twistedPairs,
@@ -1435,10 +1591,12 @@ export function HarnessStudio() {
         assetBase: new URL(".", document.baseURI).href,
         document: wirevizDocument,
         images: previewImages,
+        connectorShieldRoutes,
+        shieldStyles,
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [previewImages, wirevizDocument]);
+  }, [connectorShieldRoutes, previewImages, shieldStyles, wirevizDocument]);
 
   const updateSelected = (
     patch: Partial<HarnessComponent>,
@@ -1842,6 +2000,20 @@ export function HarnessStudio() {
       setNotice("Connect a connector, splice, or junction to a cable conductor.");
       return;
     }
+    const connectorPort = CONNECTOR_KINDS.includes(firstNode.kind)
+      ? pendingPort
+      : port;
+    const cablePort = CABLE_KINDS.includes(firstNode.kind) ? pendingPort : port;
+    const connectorIsShield = Boolean(
+      connectorShieldTerminationIdFromPort(connectorPort.portId),
+    );
+    const cableIsShield = cablePort.portId === "shield";
+    if (connectorIsShield && !cableIsShield) {
+      setNotice(
+        "Connector shield terminations connect only to a cable shield; numbered pins connect to conductors or shields.",
+      );
+      return;
+    }
 
     updateProject(
       (draft) => {
@@ -2111,6 +2283,8 @@ export function HarnessStudio() {
         assetBase: new URL(".", document.baseURI).href,
         document: wirevizDocument,
         images: previewImages,
+        connectorShieldRoutes,
+        shieldStyles,
       });
     });
   };
@@ -3021,18 +3195,24 @@ export function HarnessStudio() {
                       connectionMemberByLink.get(link.id);
                     const connectionMemberKey = connectionMember
                       ? physicalConnectionMemberKey(connectionMember)
-                      : undefined;
+                      : cableNode && cablePort?.portId === "shield"
+                        ? `${cableNode.id}:shield`
+                        : undefined;
                     const conductorId =
                       cableNode && connectionMember
                         ? cableNode.conductorIds[
                             connectionMember.conductorNumber - 1
                           ]
                         : undefined;
+                    const isShieldConnection =
+                      cableNode !== undefined && cablePort?.portId === "shield";
                     const wireCode =
-                      cableNode && cablePort?.portId.startsWith("wire:")
-                        ? (cableNode.colors[
-                            parsePortNumber(cablePort.portId) - 1
-                          ] ?? "BK")
+                      cableNode && isShieldConnection
+                        ? (cableNode.shieldColor || "BK")
+                        : cableNode && cablePort?.portId.startsWith("wire:")
+                          ? (cableNode.colors[
+                              parsePortNumber(cablePort.portId) - 1
+                            ] ?? "BK")
                         : undefined;
                     const color = wireCode
                       ? getWireColorHex(wireCode)
@@ -3049,6 +3229,8 @@ export function HarnessStudio() {
                       <g
                         key={link.id}
                         className={`connection-line ${
+                          isShieldConnection ? "shield-connection" : ""
+                        } ${
                           connectionMemberKey === hoveredConnectionMember
                             ? "hovered"
                             : ""
@@ -3219,21 +3401,28 @@ export function HarnessStudio() {
                       )}
                       <div className="node-rows">
                         {Array.from({ length: Math.max(rows, 1) }, (_, index) => {
-                          const isShield =
+                          const isCableShield =
                             CABLE_KINDS.includes(node.kind) &&
                             node.shield &&
                             index === node.wireCount;
+                          const connectorShield = CONNECTOR_KINDS.includes(node.kind)
+                            ? node.shieldTerminations?.[index - node.pinCount]
+                            : undefined;
                           const number = index + 1;
                           const isConnectorPin = CONNECTOR_KINDS.includes(
                             node.kind,
-                          );
-                          const portId = isShield
+                          ) && !connectorShield;
+                          const portId = isCableShield
                             ? "shield"
+                            : connectorShield
+                              ? connectorShieldPortId(connectorShield.id)
                             : isConnectorPin
                               ? `pin:${number}`
                               : `wire:${number}`;
-                          const label = isShield
+                          const label = isCableShield
                             ? "Shield"
+                            : connectorShield
+                              ? connectorShieldLabel(connectorShield)
                             : isConnectorPin
                               ? getPinDisplayName(node, number)
                               : node.wireLabels[index] || `Conductor ${number}`;
@@ -3244,8 +3433,10 @@ export function HarnessStudio() {
                             ? getPinTraceLabel(node, number)
                             : label;
                           const colorCode =
-                            !isShield && CABLE_KINDS.includes(node.kind)
-                              ? (node.colors[index] ?? "BK")
+                            CABLE_KINDS.includes(node.kind)
+                              ? isCableShield
+                                ? (node.shieldColor || "BK")
+                                : (node.colors[index] ?? "BK")
                               : undefined;
                           const terminationLink = CONNECTOR_KINDS.includes(
                             node.kind,
@@ -3320,7 +3511,11 @@ export function HarnessStudio() {
                                     : undefined
                                 }
                               >
-                                {isShield ? <Shield size={11} /> : number}
+                                {isCableShield || connectorShield ? (
+                                  <Shield size={11} />
+                                ) : (
+                                  number
+                                )}
                               </span>
                               <span className="row-label">{label}</span>
                               {hasWireTerminationData(
@@ -3334,8 +3529,8 @@ export function HarnessStudio() {
                                   T
                                 </span>
                               )}
-                              {!isShield && CABLE_KINDS.includes(node.kind) && (
-                                <small>{node.colors[index] || "BK"}</small>
+                              {CABLE_KINDS.includes(node.kind) && (
+                                <small>{colorCode}</small>
                               )}
                               <button
                                 className={`port right ${
@@ -4040,15 +4235,55 @@ export function HarnessStudio() {
                     </div>
                   </Field>
                   {CONNECTOR_KINDS.includes(selected.kind) ? (
-                    <PinLabelsEditor
-                      project={project}
-                      connector={selected}
-                      onChange={(pin, label) =>
-                        updateSelected({
-                          pinLabels: setConnectorPinLabel(selected, pin, label),
-                        })
-                      }
-                    />
+                    <>
+                      <PinLabelsEditor
+                        project={project}
+                        connector={selected}
+                        onChange={(pin, label) =>
+                          updateSelected({
+                            pinLabels: setConnectorPinLabel(selected, pin, label),
+                          })
+                        }
+                      />
+                      <ConnectorShieldTerminationsEditor
+                        project={project}
+                        connector={selected}
+                        onChange={(shieldTerminations) =>
+                          updateSelected({ shieldTerminations })
+                        }
+                        onDelete={(terminationId) => {
+                          const portId = connectorShieldPortId(terminationId);
+                          const connected = project.links.some((link) =>
+                            [link.from, link.to].some(
+                              (port) =>
+                                port.nodeId === selected.id && port.portId === portId,
+                            ),
+                          );
+                          if (
+                            connected &&
+                            !window.confirm(
+                              "This shield termination is connected. Remove it and its connection?",
+                            )
+                          ) return;
+                          updateProject((draft) => {
+                            const connector = draft.components.find(
+                              (component) => component.id === selected.id,
+                            );
+                            if (!connector) return;
+                            connector.shieldTerminations = (
+                              connector.shieldTerminations ?? []
+                            ).filter((termination) => termination.id !== terminationId);
+                            draft.links = draft.links.filter(
+                              (link) =>
+                                ![link.from, link.to].some(
+                                  (port) =>
+                                    port.nodeId === selected.id && port.portId === portId,
+                                ),
+                            );
+                          }, "Connector shield termination removed.");
+                        }}
+                      />
+                    </>
                   ) : (
                     selected.kind === "bundle" ? (
                       <div className="bundle-conductor-pairs">
@@ -4279,90 +4514,10 @@ export function HarnessStudio() {
                   ) : (
                     <>
                       {selected.kind === "wire" ? (
-                        (() => {
-                          const code = selected.colors[0] || "BK";
-                          const parsed = parseWireColor(code);
-                          const primaryValue = parsed.primary?.code ?? "__unknown";
-                          const secondaryValue = parsed.secondary
-                            ? parsed.secondary.code
-                            : parsed.supported
-                              ? ""
-                              : "__unknown";
-                          return (
-                            <div className="wire-color-editor">
-                              <div className="field-row">
-                                <Field label="Primary color">
-                                  <div className="select-wrap">
-                                    <select
-                                      aria-label="Primary wire color"
-                                      value={primaryValue}
-                                      onChange={(event) =>
-                                        updateSelected({
-                                          colors: [
-                                            formatWireColor(
-                                              event.target.value,
-                                              parsed.secondary?.code,
-                                            ),
-                                          ],
-                                        })
-                                      }
-                                    >
-                                      {!parsed.primary && (
-                                        <option value="__unknown" disabled>
-                                          Unsupported ({parsed.code || "empty"})
-                                        </option>
-                                      )}
-                                      {WIRE_COLOR_OPTIONS.map((option) => (
-                                        <option key={option.code} value={option.code}>
-                                          {option.name} ({option.code})
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <ChevronDown size={13} />
-                                  </div>
-                                </Field>
-                                <Field label="Secondary color" hint="optional stripe">
-                                  <div className="select-wrap">
-                                    <select
-                                      aria-label="Secondary wire color"
-                                      value={secondaryValue}
-                                      disabled={!parsed.primary}
-                                      onChange={(event) =>
-                                        updateSelected({
-                                          colors: [
-                                            formatWireColor(
-                                              parsed.primary?.code ?? "BK",
-                                              event.target.value || undefined,
-                                            ),
-                                          ],
-                                        })
-                                      }
-                                    >
-                                      <option value="">None</option>
-                                      {!parsed.supported && parsed.secondaryCode && (
-                                        <option value="__unknown" disabled>
-                                          Unsupported ({parsed.secondaryCode})
-                                        </option>
-                                      )}
-                                      {WIRE_COLOR_OPTIONS.map((option) => (
-                                        <option key={option.code} value={option.code}>
-                                          {option.name} ({option.code})
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <ChevronDown size={13} />
-                                  </div>
-                                </Field>
-                              </div>
-                              <div className="wire-color-preview">
-                                <WireColorSwatch code={code} className="large" />
-                                <span>{getWireColorDisplay(code)}</span>
-                                <small>WireViz code</small>
-                                <code>{code}</code>
-                              </div>
-                            </div>
-                          );
-                        })()
+                        <WireColorEditor
+                          code={selected.colors[0] || "BK"}
+                          onChange={(code) => updateSelected({ colors: [code] })}
+                        />
                       ) : (
                         <>
                           <Field label="Wire colors" hint="WireViz codes, comma separated">
@@ -4441,6 +4596,18 @@ export function HarnessStudio() {
                         />
                         <span className="switch" />
                       </label>
+                      {selected.shield && (
+                        <div className="shield-color-control">
+                          <h4>Shield color</h4>
+                          <WireColorEditor
+                            code={selected.shieldColor || "BK"}
+                            target="shield"
+                            onChange={(shieldColor) =>
+                              updateSelected({ shieldColor })
+                            }
+                          />
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -5664,6 +5831,110 @@ function CableAdditionalComponentsSection({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ConnectorShieldTerminationsEditor({
+  project,
+  connector,
+  onChange,
+  onDelete,
+}: {
+  project: HarnessProject;
+  connector: HarnessComponent;
+  onChange: (terminations: ConnectorShieldTermination[]) => void;
+  onDelete: (terminationId: string) => void;
+}) {
+  const values = connector.shieldTerminations ?? [];
+  const update = (
+    id: string,
+    field: keyof Omit<ConnectorShieldTermination, "id">,
+    value: string,
+  ) =>
+    onChange(
+      values.map((termination) =>
+        termination.id === id
+          ? { ...termination, [field]: value }
+          : termination,
+      ),
+    );
+  return (
+    <div className="connector-shield-editor">
+      <div className="section-heading-row">
+        <div>
+          <h4>Shield terminations</h4>
+          <p className="section-note">
+            Physical shell or chassis terminations; these do not increase pin count.
+          </p>
+        </div>
+        <button
+          className="compact-button"
+          onClick={() =>
+            onChange([
+              ...values,
+              {
+                id: createConnectorShieldTerminationId(),
+                label: "Shield",
+              },
+            ])
+          }
+        >
+          <Plus size={13} /> Add shield
+        </button>
+      </div>
+      {values.map((termination) => {
+        const portId = connectorShieldPortId(termination.id);
+        const connected = project.links.some((link) =>
+          [link.from, link.to].some(
+            (port) => port.nodeId === connector.id && port.portId === portId,
+          ),
+        );
+        return (
+          <div className="termination-row" key={termination.id}>
+            <Field label="Label">
+              <input
+                value={termination.label ?? ""}
+                placeholder="Shield"
+                onChange={(event) => update(termination.id, "label", event.target.value)}
+              />
+            </Field>
+            <Field label="Manufacturer">
+              <input
+                value={termination.manufacturer ?? ""}
+                onChange={(event) =>
+                  update(termination.id, "manufacturer", event.target.value)
+                }
+              />
+            </Field>
+            <Field label="MPN">
+              <input
+                value={termination.mpn ?? ""}
+                onChange={(event) => update(termination.id, "mpn", event.target.value)}
+              />
+            </Field>
+            <Field label="Strip length">
+              <input
+                value={termination.stripLength ?? ""}
+                placeholder="5 mm"
+                onChange={(event) =>
+                  update(termination.id, "stripLength", event.target.value)
+                }
+              />
+            </Field>
+            <Field label="Note">
+              <textarea
+                rows={2}
+                value={termination.note ?? ""}
+                onChange={(event) => update(termination.id, "note", event.target.value)}
+              />
+            </Field>
+            <button className="danger-button" onClick={() => onDelete(termination.id)}>
+              <Trash2 size={13} /> Delete{connected ? " connected shield" : ""}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

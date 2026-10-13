@@ -1,11 +1,13 @@
 import {
   physicalConnectionMemberKey,
+  normalizedConnectionEndpoints,
+  resolveConnectorEndpoint,
   resolvePhysicalConnections,
   type ConnectionEndpointStatus,
   type ResolvedConnectionEndpoint,
   type ResolvedPhysicalConnection,
 } from "./connection-topology.ts";
-import type { HarnessProject } from "./model.ts";
+import { CABLE_KINDS, type HarnessProject } from "./model.ts";
 
 export interface ConnectionHoverInfo {
   memberKey: string;
@@ -69,10 +71,48 @@ export function buildConnectionHoverInfo(
 
 /** Builds a stable member-key lookup for the interactive diagram only. */
 export function buildConnectionHoverInfoIndex(project: HarnessProject) {
-  return new Map(
+  const index = new Map(
     resolvePhysicalConnections(project).map((connection) => {
       const info = buildConnectionHoverInfo(connection);
       return [info.memberKey, info] as const;
     }),
   );
+  const components = new Map(
+    project.components.map((component) => [component.id, component]),
+  );
+  for (const cable of project.components.filter(
+    (component) => CABLE_KINDS.includes(component.kind) && component.shield,
+  )) {
+    const endpoints = project.links.flatMap((link) => {
+      const own = [link.from, link.to].find(
+        (port) => port.nodeId === cable.id && port.portId === "shield",
+      );
+      if (!own) return [];
+      const other = own === link.from ? link.to : link.from;
+      return [resolveConnectorEndpoint(components, other)];
+    });
+    if (!endpoints.length) continue;
+    const [from, to] = normalizedConnectionEndpoints(endpoints);
+    const memberKey = `${cable.id}:shield`;
+    const state =
+      from.status === "unresolved" || to.status === "unresolved"
+        ? "unresolved"
+        : to.status === "open"
+          ? "open"
+          : to.status === "multidrop"
+            ? "multidrop"
+            : "connected";
+    index.set(memberKey, {
+      memberKey,
+      from,
+      to,
+      state,
+      primaryText:
+        endpoints.length === 1
+          ? `${endpointText(from)} â€“ ${cable.designator}:Shield`
+          : `${endpointText(from)} â€“ ${endpointText(to)}`,
+      secondaryText: "Shield",
+    });
+  }
+  return index;
 }

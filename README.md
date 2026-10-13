@@ -148,6 +148,25 @@ Connector copy/paste and User Library templates preserve labels. WireViz export
 uses its standard positional `pinlabels` array (including empty placeholders
 for partial labeling), while connections continue to reference numeric pins.
 
+Connectors may also define dedicated shield, shell, or chassis terminations.
+These are stable physical endpoints stored separately from numbered pins, so an
+8-pin connector with a Shield termination remains an 8-pin connector. Cable
+shields can connect either to a real numbered pin or to a dedicated connector
+shield endpoint. The editor, diagram, hover details, Terminations table, native
+BOM, HTML/PDF reports, copy/paste, and User Libraries preserve this distinction.
+Because standard WireViz has no connector-shell endpoint, dedicated shield
+metadata and links remain WireForm-native and are not emitted as custom YAML;
+ordinary numbered-pin shield connections continue to export normally.
+
+Cable and wire shields can use the same solid or bi-color WireViz color codes
+as conductors. Shield color is stored on the cable itself, preserved by copy
+and User Library templates, and shown consistently in the editor and native
+HTML/PDF diagram. Legacy shields without a stored color retain the dark `BK`
+appearance. Shield edges are deliberately thinner than conductor edges while
+keeping a wide invisible hover target. Because WireViz has no standard shield
+color field, this visual metadata remains WireForm-native and does not add
+custom YAML.
+
 Wire colors use the standard combined WireViz code as their authoritative
 stored and exported representation. A solid blue wire is `BU`; `BUWH` means a
 Blue primary wire with a White secondary stripe, while `WHBU` means a White

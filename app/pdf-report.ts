@@ -269,7 +269,7 @@ export function pdfWireColorSwatch(code: string): Column {
   };
 }
 
-export function pdfWireColorCell(code: string): Content {
+export function pdfWireColorCell(code: string, noWrap = false): Content {
   return {
     columns: [
       pdfWireColorSwatch(code),
@@ -277,6 +277,7 @@ export function pdfWireColorCell(code: string): Content {
         width: "*",
         text: getWireColorDisplay(code),
         style: "tableCell",
+        ...(noWrap ? { noWrap: true } : {}),
       },
     ],
     columnGap: 3,
@@ -303,8 +304,8 @@ function pdfConnectionMappingConductorCell(
 }
 
 const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
-  { heading: "Pin", value: (row) => row.pin, width: 24 },
-  { heading: "Label", value: (row) => row.label, optional: true },
+  { heading: "Pin", value: (row) => row.pin, width: 28 },
+  { heading: "Label", value: (row) => row.label, width: 72, optional: true },
   {
     heading: "Wire / Conductor",
     value: (row) => row.wireConductor,
@@ -313,8 +314,8 @@ const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
   {
     heading: "Color",
     value: (row) => row.color,
-    cell: (row) => pdfWireColorCell(row.color),
-    width: 105,
+    cell: (row) => pdfWireColorCell(row.color, true),
+    width: 170,
     optional: true,
   },
 ];
@@ -400,6 +401,19 @@ function connectorContent(
     ...alternativesTable(connector.approvedAlternatives),
     subsection("Pinout"),
     table(connector.pins, PIN_COLUMNS, "No pins are defined."),
+    ...(connector.shieldTerminations.length
+      ? [
+          subsection("Shield Terminations"),
+          table(
+            connector.shieldTerminations,
+            [
+              { heading: "Label", value: (row) => row.label, width: 90 },
+              { heading: "Connected to", value: (row) => row.connectedTo },
+            ],
+            "",
+          ),
+        ]
+      : []),
     ...(connector.additionalComponents.length
       ? [
           subsection("Additional Components"),

@@ -26,6 +26,10 @@ import {
   type TopologyLink,
 } from "./model.ts";
 import {
+  connectorShieldLabel,
+  findConnectorShieldTermination,
+} from "./connector-shields.ts";
+import {
   compactWireTermination,
   isPhysicalTerminationLink,
 } from "./termination.ts";
@@ -84,8 +88,14 @@ export interface ReportConnector {
     height: number;
   };
   pins: ReportPin[];
+  shieldTerminations: ReportConnectorShieldTermination[];
   additionalComponents: ReportConnectorAdditionalComponent[];
   approvedAlternatives: BomApprovedAlternative[];
+}
+
+export interface ReportConnectorShieldTermination {
+  label: string;
+  connectedTo: string;
 }
 
 export interface ReportConnectorAdditionalComponent {
@@ -369,6 +379,29 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
       const approvedAlternatives = componentApprovedAlternatives(component).map(
         ({ manufacturer, mpn, note }) => ({ manufacturer, mpn, note }),
       );
+      const shieldTerminations = (component.shieldTerminations ?? []).map(
+        (termination) => {
+          const portId = `connector-shield:${termination.id}`;
+          const connectedTo = project.links
+            .flatMap((link) => {
+              const own = [link.from, link.to].find(
+                (port) => port.nodeId === component.id && port.portId === portId,
+              );
+              if (!own) return [];
+              const other = own === link.from ? link.to : link.from;
+              return [connectionLabel(
+                project.components.find((candidate) => candidate.id === other.nodeId),
+                other.portId,
+              )];
+            })
+            .sort(naturalCompare)
+            .join(", ");
+          return {
+            label: connectorShieldLabel(termination),
+            connectedTo,
+          };
+        },
+      );
       return {
         designator: component.designator,
         kind: component.kind,
@@ -386,9 +419,11 @@ function buildConnectors(project: HarnessProject): ReportConnector[] {
           !clean(component.spn) &&
           !clean(component.notes) &&
           !additionalComponents.length &&
-          !approvedAlternatives.length,
+          !approvedAlternatives.length &&
+          !shieldTerminations.length,
         ...(photo ? { photo } : {}),
         pins: pinRows(project, component),
+        shieldTerminations,
         additionalComponents,
         approvedAlternatives,
       };
@@ -570,25 +605,36 @@ function buildTerminations(project: HarnessProject): ReportTermination[] {
     .map((link) => physicalLinkContext(project, link))
     .filter((context): context is PhysicalLinkContext => Boolean(context))
     .flatMap((context) => {
-      const termination = compactWireTermination(context.link.termination);
-      if (!termination) return [];
+      const linkTermination = compactWireTermination(context.link.termination);
       const pin = portOrdinal(context.connectorPortId);
+      const shieldTermination = findConnectorShieldTermination(
+        context.connector,
+        context.connectorPortId,
+      );
+      if (!linkTermination && !shieldTermination) return [];
       return [
         {
           connector: context.connector.designator,
-          pin: pin ? String(pin) : context.connectorPortId,
+          pin: pin
+            ? String(pin)
+            : connectorShieldLabel(shieldTermination),
           pinLabel: pin
             ? getConnectorPinLabel(context.connector, pin)
             : "",
           cable: context.cable.designator,
           conductor: conductorLabel(context.cable, context.cablePortId),
           signal: getConductorSignal(context.cable, context.cablePortId),
-          contactManufacturer: clean(termination.contact?.manufacturer),
-          contactMpn: partNumber(termination.contact),
-          sealPn: partNumber(termination.seal),
-          stripLength: clean(termination.stripLength),
-          tooling: clean(termination.tooling),
-          notes: clean(termination.notes),
+          contactManufacturer:
+            clean(shieldTermination?.manufacturer) ||
+            clean(linkTermination?.contact?.manufacturer),
+          contactMpn:
+            clean(shieldTermination?.mpn) || partNumber(linkTermination?.contact),
+          sealPn: partNumber(linkTermination?.seal),
+          stripLength:
+            clean(shieldTermination?.stripLength) ||
+            clean(linkTermination?.stripLength),
+          tooling: clean(linkTermination?.tooling),
+          notes: clean(shieldTermination?.note) || clean(linkTermination?.notes),
         },
       ];
     })
@@ -853,6 +899,7 @@ interface TableColumn<Row> {
   render?: (row: Row, index: number) => string;
   optional?: boolean;
   numeric?: boolean;
+  className?: string;
 }
 
 export function renderWireColorHtml(code: string) {
@@ -868,16 +915,23 @@ function renderTable<Row>(
   rows: readonly Row[],
   columns: ReadonlyArray<TableColumn<Row>>,
   emptyMessage: string,
+  tableClassName = "",
 ) {
   const visible = columns.filter(
     (column) =>
       !column.optional || rows.some((row, index) => column.value(row, index) !== ""),
   );
   if (!rows.length) return `<p class="empty">${escapeHtml(emptyMessage)}</p>`;
-  return `<div class="table-wrap"><table><thead><tr>${visible
+  return `<div class="table-wrap"><table${
+    tableClassName ? ` class="${escapeHtml(tableClassName)}"` : ""
+  }><thead><tr>${visible
     .map(
-      (column) =>
-        `<th${column.numeric ? ' class="number"' : ""}>${escapeHtml(column.heading)}</th>`,
+      (column) => {
+        const className = [column.numeric ? "number" : "", column.className]
+          .filter(Boolean)
+          .join(" ");
+        return `<th${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(column.heading)}</th>`;
+      },
     )
     .join("")}</tr></thead><tbody>${rows
     .map(
@@ -885,7 +939,10 @@ function renderTable<Row>(
         `<tr>${visible
           .map((column) => {
             const value = column.value(row, index);
-            return `<td${column.numeric ? ' class="number"' : ""}>${
+            const className = [column.numeric ? "number" : "", column.className]
+              .filter(Boolean)
+              .join(" ");
+            return `<td${className ? ` class="${escapeHtml(className)}"` : ""}>${
               value === ""
                 ? '<span class="muted">—</span>'
                 : column.render?.(row, index) ?? escapeHtml(value)
@@ -923,18 +980,25 @@ function approvedAlternativesTable(
 
 function connectorSection(connector: ReportConnector, index: number) {
   const pinColumns: Array<TableColumn<ReportPin>> = [
-    { heading: "Pin", value: (row) => row.pin },
-    { heading: "Label", value: (row) => row.label, optional: true },
+    { heading: "Pin", value: (row) => row.pin, className: "pinout-pin" },
+    {
+      heading: "Label",
+      value: (row) => row.label,
+      optional: true,
+      className: "pinout-label",
+    },
     {
       heading: "Wire / Conductor",
       value: (row) => row.wireConductor,
       optional: true,
+      className: "pinout-wire",
     },
     {
       heading: "Color",
       value: (row) => row.color,
       render: (row) => renderWireColorHtml(row.color),
       optional: true,
+      className: "pinout-color",
     },
   ];
   const image = connector.photo
@@ -972,6 +1036,16 @@ function connectorSection(connector: ReportConnector, index: number) {
         "No connector accessories are assigned.",
       )}`
     : "";
+  const shieldTerminations = connector.shieldTerminations.length
+    ? `<h4>Shield Terminations</h4>${renderTable(
+        connector.shieldTerminations,
+        [
+          { heading: "Label", value: (row) => row.label },
+          { heading: "Connected to", value: (row) => row.connectedTo, optional: true },
+        ],
+        "",
+      )}`
+    : "";
   return `<article class="connector-card" id="connector-${index + 1}">
 <h3>${escapeHtml(connector.designator)} <span>${escapeHtml(connector.name || connector.kind)}</span></h3>
 <div class="connector-overview"><dl class="metadata compact">
@@ -985,7 +1059,8 @@ ${metadataItem("Pin count", connector.pinCount)}
 ${connector.notes ? `<p class="notes"><strong>Notes:</strong> ${escapeHtml(connector.notes)}</p>` : ""}
 ${approvedAlternativesTable(connector.approvedAlternatives)}
 <h4>Pinout</h4>
-${renderTable(connector.pins, pinColumns, "No pins are defined.")}
+${renderTable(connector.pins, pinColumns, "No pins are defined.", "pinout-table")}
+ ${shieldTerminations}
 ${additionalComponents}
 </article>`;
 }
@@ -1157,12 +1232,12 @@ function cableConductorsSection(cable: ReportCable) {
 
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
-*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
+*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.pinout-table{table-layout:fixed}.pinout-table .pinout-pin{width:7%}.pinout-table .pinout-label{width:15%}.pinout-table .pinout-color{width:28%}.pinout-table .wire-color-value{min-width:0;max-width:100%;white-space:nowrap}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
 .mapping-note{margin:-6px 0 12px;color:#64737d;font-size:.82rem}.connection-conductor{display:inline-flex;align-items:center;gap:6px}.connection-conductor .wire-color-swatch{width:28px}.harness-images{padding-bottom:8px}.harness-image{margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #dce3e6;text-align:center}.harness-image:last-child{border-bottom:0;margin-bottom:0}.harness-image h3{text-align:left}.harness-image img{display:block;width:auto;height:auto;max-width:100%;max-height:760px;object-fit:contain;margin:0 auto;border:1px solid #ccd4d9;border-radius:5px}.harness-image figcaption{max-width:none;margin:10px auto 0;text-align:left;white-space:pre-wrap;font-size:.9rem;color:#455661}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media print{.harness-images{break-before:page}.harness-image{break-inside:avoid}.harness-image img{max-width:100%;max-height:220mm}}
-@media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}}
+@media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}.pinout-table .wire-color-value{white-space:normal}}
 `;
 
 export function renderHarnessReportHtml(model: HarnessReportModel) {

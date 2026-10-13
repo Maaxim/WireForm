@@ -8,6 +8,8 @@ import {
   getTwistedPairMemberDisplay,
   resolveTwistedPairMember,
 } from "./twisted-pair.ts";
+import { getWireColorGraphvizStroke } from "./wire-colors.ts";
+import type { ShieldDiagramStyle } from "./shield-routing.ts";
 
 export interface DiagramPoint {
   x: number;
@@ -277,6 +279,170 @@ export function applyHarnessDiagramLayout(dot: string) {
   );
 }
 
+function withDotPort(attributes: string, port: "shield_l" | "shield_r") {
+  return /\bport\s*=/i.test(attributes)
+    ? attributes
+    : `${attributes} port="${port}"`;
+}
+
+/**
+ * Replaces WireViz's single full-width shield attachment with side-local ports.
+ * The visible endpoint cells retain WireViz's standard Jx:pin row text.
+ */
+export function applyShieldDiagramRouting(dot: string) {
+  const withPorts = dot.replace(
+    /<tr>(?:(?!<\/tr>)[\s\S])*?<td[^>]*>\s*Shield\s*<\/td>(?:(?!<\/tr>)[\s\S])*?<\/tr>(?=\s*<tr>\s*<td[^>]*\bport\s*=\s*["']ws["'])/gi,
+    (row) => {
+      const cellOpenings = [...row.matchAll(/<td([^>]*)>/gi)];
+      if (cellOpenings.length !== 3) return row;
+      let result = row;
+      for (const [cellIndex, port] of [
+        [2, "shield_r"],
+        [0, "shield_l"],
+      ] as const) {
+        const opening = cellOpenings[cellIndex];
+        const start = opening.index;
+        result = `${result.slice(0, start)}<td${withDotPort(
+          opening[1],
+          port,
+        )}>${result.slice(start + opening[0].length)}`;
+      }
+      return result;
+    },
+  );
+  return withPorts
+    .replace(/:ws:w\b/g, ":shield_l:w")
+    .replace(/:ws:e\b/g, ":shield_r:e");
+}
+
+export interface ConnectorShieldDiagramRoute {
+  cableDesignator: string;
+  cableSide: "left" | "right";
+  connectorDesignator: string;
+  shieldTerminationId: string;
+  shieldLabel: string;
+}
+
+function dotNodeLabelRange(dot: string, designator: string) {
+  const escaped = designator.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\n)\\s*"?${escaped}"?\\s*\\[`, "m").exec(dot);
+  if (!match) return undefined;
+  const start = match.index + match[0].indexOf("[");
+  const end = dot.indexOf("]", start);
+  return end < 0 ? undefined : { start, end };
+}
+
+function addConnectorShieldRow(
+  dot: string,
+  route: ConnectorShieldDiagramRoute,
+) {
+  const range = dotNodeLabelRange(dot, route.connectorDesignator);
+  if (!range) return dot;
+  const node = dot.slice(range.start, range.end);
+  const port = `connector_shield_${encodeDiagramKey(route.shieldTerminationId)}`;
+  if (node.includes(`port="${port}"`)) return dot;
+  const tableEnd = node.lastIndexOf("</table>");
+  if (tableEnd < 0) return dot;
+  const row = `<tr><td colspan="3" port="${port}" align="center" valign="middle">${escapeXmlText(
+    route.shieldLabel || "Shield",
+  )}</td></tr>`;
+  const nextNode = `${node.slice(0, tableEnd)}${row}${node.slice(tableEnd)}`;
+  return `${dot.slice(0, range.start)}${nextNode}${dot.slice(range.end)}`;
+}
+
+function setCableShieldEndpointLabel(
+  dot: string,
+  route: ConnectorShieldDiagramRoute,
+) {
+  const range = dotNodeLabelRange(dot, route.cableDesignator);
+  if (!range) return dot;
+  const node = dot.slice(range.start, range.end);
+  const port = route.cableSide === "left" ? "shield_l" : "shield_r";
+  const expression = new RegExp(
+    `(<td[^>]*\\bport=["']${port}["'][^>]*>)[\\s\\S]*?(<\\/td>)`,
+    "i",
+  );
+  if (!expression.test(node)) return dot;
+  const label = escapeXmlText(
+    `${route.connectorDesignator}:${route.shieldLabel || "Shield"}`,
+  );
+  const nextNode = node.replace(expression, `$1${label}$2`);
+  return `${dot.slice(0, range.start)}${nextNode}${dot.slice(range.end)}`;
+}
+
+function escapeXmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+/** Adds WireForm-native connector shell rows without changing WireViz YAML. */
+export function applyConnectorShieldDiagramRoutes(
+  dot: string,
+  routes: readonly ConnectorShieldDiagramRoute[] = [],
+) {
+  let result = dot;
+  for (const route of routes) {
+    result = addConnectorShieldRow(result, route);
+    result = setCableShieldEndpointLabel(result, route);
+  }
+  if (!routes.length) return result;
+  const edges = routes.map((route) => {
+    const connectorPort = `connector_shield_${encodeDiagramKey(route.shieldTerminationId)}`;
+    return route.cableSide === "left"
+      ? `  "${route.connectorDesignator}":${connectorPort}:e -- "${route.cableDesignator}":shield_l:w`
+      : `  "${route.cableDesignator}":shield_r:e -- "${route.connectorDesignator}":${connectorPort}:w`;
+  });
+  return result.replace(/\n}\s*$/, `\n${edges.join("\n")}\n}`);
+}
+
+export const SHIELD_DIAGRAM_STROKE_WIDTH = 1.1;
+
+function withShieldEdgeAttributes(line: string, colorCode: string) {
+  const color = getWireColorGraphvizStroke(colorCode);
+  const stripeCount = color.split(":").length;
+  const penWidth = (SHIELD_DIAGRAM_STROKE_WIDTH / stripeCount).toFixed(3);
+  const additions = `color="${color}", penwidth=${penWidth}, style="solid"`;
+  const attributes = /\[([^\]]*)\](\s*;?\s*)$/.exec(line);
+  if (!attributes) return `${line} [${additions}]`;
+  const kept = attributes[1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter(
+      (value) =>
+        value && !/^(?:color|penwidth|style)\s*=/i.test(value),
+    );
+  return `${line.slice(0, attributes.index)}[${[...kept, additions].join(", ")}]${attributes[2]}`;
+}
+
+/** Applies one thin, color-aware vector style to standard and native shields. */
+export function applyShieldDiagramStyles(
+  dot: string,
+  styles: readonly ShieldDiagramStyle[] = [],
+) {
+  const byDesignator = new Map(
+    styles.map((style) => [style.cableDesignator, style.colorCode]),
+  );
+  if (!byDesignator.size) return dot;
+  return dot
+    .split("\n")
+    .map((line) => {
+      if (!line.includes(" -- ") && !line.includes(" -> ")) return line;
+      const endpoint = /(?:"((?:\\.|[^"])*)"|([A-Za-z0-9_.-]+)):shield_[lr]:[ew]\b/.exec(
+        line,
+      );
+      if (!endpoint) return line;
+      const designator = decodeDotIdentifier(
+        endpoint[1] !== undefined ? `"${endpoint[1]}"` : endpoint[2],
+      );
+      const colorCode = byDesignator.get(designator);
+      return colorCode ? withShieldEdgeAttributes(line, colorCode) : line;
+    })
+    .join("\n");
+}
+
 function decodeDotIdentifier(value: string) {
   const trimmed = value.trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
@@ -315,8 +481,20 @@ export function addWireFormDiagramIdsToDot(dot: string) {
 }
 
 /** Applies WireForm's shared layout and identity metadata before Graphviz. */
-export function prepareHarnessDiagramDot(dot: string) {
-  return addWireFormDiagramIdsToDot(applyHarnessDiagramLayout(dot));
+export function prepareHarnessDiagramDot(
+  dot: string,
+  connectorShieldRoutes: readonly ConnectorShieldDiagramRoute[] = [],
+  shieldStyles: readonly ShieldDiagramStyle[] = [],
+) {
+  return addWireFormDiagramIdsToDot(
+    applyShieldDiagramStyles(
+      applyConnectorShieldDiagramRoutes(
+        applyShieldDiagramRouting(applyHarnessDiagramLayout(dot)),
+        connectorShieldRoutes,
+      ),
+      shieldStyles,
+    ),
+  );
 }
 
 function nodeGeometry(groups: readonly SvgGroup[], designator: string) {

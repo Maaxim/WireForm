@@ -200,8 +200,9 @@ test("wire color affects no-MPN BOM identity but never changes quantity", () => 
 
 test("UI source uses shared editor, striped canvas path, and library swatch", async () => {
   const source = await readFile(new URL("../app/HarnessStudio.tsx", import.meta.url), "utf8");
-  assert.match(source, /aria-label="Primary wire color"/);
-  assert.match(source, /aria-label="Secondary wire color"/);
+  assert.match(source, /"Primary shield color" : "Primary wire color"/);
+  assert.match(source, /"Secondary shield color" : "Secondary wire color"/);
+  assert.match(source, /target="shield"/);
   assert.match(source, /formatWireColor\(/);
   assert.match(source, /className="connection-stripe"/);
   assert.match(source, /getWireColorCssBackground\(colorCode\)/);

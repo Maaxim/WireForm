@@ -19,6 +19,10 @@ import {
 } from "./approved-alternatives.ts";
 import { isPhysicalTerminationLink } from "./termination.ts";
 import { getWireColorDisplay } from "./wire-colors.ts";
+import {
+  connectorShieldLabel,
+  findConnectorShieldTermination,
+} from "./connector-shields.ts";
 
 export interface BomRow {
   category: string;
@@ -234,16 +238,19 @@ function terminationReference(
     return Boolean(
       component &&
         CONNECTOR_KINDS.includes(component.kind) &&
-        endpoint.portId.startsWith("pin:"),
+        (endpoint.portId.startsWith("pin:") ||
+          endpoint.portId.startsWith("connector-shield:")),
     );
   });
   if (!port) return "";
   const connector = project.components.find(
     (component) => component.id === port.nodeId,
   );
-  return connector
-    ? `${clean(connector.designator)}:${port.portId.slice("pin:".length)}`
-    : "";
+  if (!connector) return "";
+  const shield = findConnectorShieldTermination(connector, port.portId);
+  return `${clean(connector.designator)}:${
+    shield ? connectorShieldLabel(shield) : port.portId.slice("pin:".length)
+  }`;
 }
 
 function groupingKey(contribution: BomContribution) {
@@ -376,6 +383,32 @@ export function buildBomRows(project: HarnessProject) {
         partContribution(
           link.termination.seal,
           "Wire seal",
+          1,
+          designators,
+        ),
+      );
+    }
+    const connectorEndpoint = [link.from, link.to].find((endpoint) =>
+      endpoint.portId.startsWith("connector-shield:"),
+    );
+    const connector = connectorEndpoint
+      ? project.components.find((component) => component.id === connectorEndpoint.nodeId)
+      : undefined;
+    const shieldTermination = connectorEndpoint
+      ? findConnectorShieldTermination(connector, connectorEndpoint.portId)
+      : undefined;
+    if (
+      shieldTermination &&
+      (clean(shieldTermination.manufacturer) || clean(shieldTermination.mpn))
+    ) {
+      contributions.push(
+        partContribution(
+          {
+            type: "Connector shield termination",
+            manufacturer: shieldTermination.manufacturer,
+            mpn: shieldTermination.mpn,
+          },
+          "Connector shield termination",
           1,
           designators,
         ),

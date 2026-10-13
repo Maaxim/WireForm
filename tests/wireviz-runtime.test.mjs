@@ -43,6 +43,21 @@ function svgViewBox(svg) {
   return values;
 }
 
+function graphvizUnidentifiedEdgeBounds(svg, from, to) {
+  const group = [...svg.matchAll(/<g\b[^>]*id="([^"]+)"[^>]*class="edge"[^>]*>([\s\S]*?)<\/g>/g)].find(
+    (match) =>
+      !match[1].startsWith("wireform") &&
+      match[2].includes(`<title>${from}:e&#45;&#45;${to}:w</title>`),
+  );
+  const path = group?.[2].match(/<path\b[^>]*d="([^"]+)"/)?.[1];
+  assert.ok(path, `Missing local ${from}--${to} edge`);
+  const values = [...path.matchAll(/-?(?:\d+(?:\.\d*)?|\.\d+)/g)].map(
+    (match) => Number(match[0]),
+  );
+  const xs = values.filter((_value, index) => index % 2 === 0);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs) };
+}
+
 test(
   "vendored WireViz produces DOT that GraphViz WASM renders",
   { timeout: 60_000 },
@@ -83,8 +98,8 @@ from wireviz.wireviz import parse as wireviz_parse
       connectors: {
         J1: {
           type: "Source",
-          pincount: 2,
-          pinlabels: ["PWR", "GND"],
+          pincount: 3,
+          pinlabels: ["PWR", "GND", "SHIELD"],
           additional_components: [
             {
               type: "Crimp contact",
@@ -101,13 +116,14 @@ from wireviz.wireviz import parse as wireviz_parse
             fixedsize: false,
           },
         },
-        J2: { type: "Load", pincount: 2, pinlabels: ["PWR", "GND"] },
+        J2: { type: "Load", pincount: 3, pinlabels: ["PWR", "GND", "SHIELD"] },
       },
       cables: {
         W1: {
           wirecount: 2,
           colors: ["BUWH", "WHBU"],
           wirelabels: ["POWER", "RETURN"],
+          shield: true,
           gauge: "22 AWG",
           length: "1 m",
           additional_components: [
@@ -131,6 +147,7 @@ from wireviz.wireviz import parse as wireviz_parse
       connections: [
         [{ J1: 1 }, { W1: 1 }, { J2: 1 }],
         [{ J1: 2 }, { W1: 2 }, { J2: 2 }],
+        [{ J1: 3 }, { W1: "s" }],
       ],
     };
 
@@ -152,11 +169,27 @@ harness.graph.source
     assert.match(dot, /rankdir=LR/);
     assert.match(dot, /ranksep=2/);
     assert.match(dot, /nodesep=0\.33/);
-    const diagramDot = prepareHarnessDiagramDot(dot);
+    assert.match(dot, /J1:p3r:e -- W1:ws:w/);
+    const diagramDot = prepareHarnessDiagramDot(
+      dot,
+      [],
+      [{ cableDesignator: "W1", colorCode: "GNYE" }],
+    );
+    const nativeShieldDot = prepareHarnessDiagramDot(dot, [{
+      cableDesignator: "W1",
+      cableSide: "right",
+      connectorDesignator: "J2",
+      shieldTerminationId: "shell-a",
+      shieldLabel: "Chassis",
+    }], [{ cableDesignator: "W1", colorCode: "GNYE" }]);
     assert.match(diagramDot, /ranksep=6/);
     assert.match(diagramDot, /nodesep=0\.33/);
     assert.match(diagramDot, /id="wireform-member-57_31-1-1"/);
     assert.match(diagramDot, /id="wireform-member-57_31-2-1"/);
+    assert.match(diagramDot, /port="shield_l">J1:3:SHIELD<\/td>/);
+    assert.match(diagramDot, /port="shield_r"><!-- s_out --><\/td>/);
+    assert.match(diagramDot, /J1:p3r:e -- W1:shield_l:w/);
+    assert.doesNotMatch(diagramDot, /-- W1:ws:w/);
     const renderOptions = {
       engine: "dot",
       format: "svg",
@@ -164,10 +197,29 @@ harness.graph.source
     };
     const baselineSvg = viz.renderString(dot, renderOptions);
     let svg = viz.renderString(diagramDot, renderOptions);
+    const nativeShieldSvg = viz.renderString(nativeShieldDot, renderOptions);
+    assert.match(nativeShieldDot, /port="connector_shield_73_68_65_6c_6c_2d_61"/);
+    assert.match(nativeShieldDot, /"W1":shield_r:e -- "J2":connector_shield_/);
+    assert.match(nativeShieldSvg, />Chassis</);
+    assert.match(svg, /stroke="#3c9669"/);
+    assert.match(svg, /stroke="#e4b72d"/);
+    assert.match(svg, /stroke-width="0\.22"/);
+    const bothEndSvg = viz.renderString(
+      diagramDot.replace(/\n}\s*$/, "\n\tW1:shield_r:e -- J2:p3l:w\n}"),
+      renderOptions,
+    );
     const baselineJ1 = graphvizNodeBounds(baselineSvg, "J1");
     const baselineW1 = graphvizNodeBounds(baselineSvg, "W1");
     const spacedJ1 = graphvizNodeBounds(svg, "J1");
     const spacedW1 = graphvizNodeBounds(svg, "W1");
+    const shieldEdge = graphvizUnidentifiedEdgeBounds(svg, "J1", "W1");
+    const bothEndW1 = graphvizNodeBounds(bothEndSvg, "W1");
+    const bothEndJ2 = graphvizNodeBounds(bothEndSvg, "J2");
+    const rightShieldEdge = graphvizUnidentifiedEdgeBounds(
+      bothEndSvg,
+      "W1",
+      "J2",
+    );
     const baselineGap = baselineW1.minX - baselineJ1.maxX;
     const spacedGap = spacedW1.minX - spacedJ1.maxX;
     assert.ok(Math.abs(spacedGap / baselineGap - 3) < 0.05);
@@ -177,6 +229,10 @@ harness.graph.source
     );
     assert.ok(svgViewBox(svg)[2] > svgViewBox(baselineSvg)[2]);
     assert.equal(svgViewBox(svg)[3], svgViewBox(baselineSvg)[3]);
+    assert.ok(shieldEdge.minX >= spacedJ1.maxX - 0.01);
+    assert.ok(shieldEdge.maxX <= spacedW1.minX + 0.01);
+    assert.ok(rightShieldEdge.minX >= bothEndW1.maxX - 0.01);
+    assert.ok(rightShieldEdge.maxX <= bothEndJ2.minX + 0.01);
     svg = svg.split(imagePath).join(imageDataUrl);
     assert.match(svg, /<svg\b/);
     assert.match(svg, />J1</);
