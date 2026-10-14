@@ -556,6 +556,36 @@ select:focus-visible {
   gap: 5px;
 }
 
+.canvas-grid-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 4px;
+}
+
+.canvas-toggle {
+  height: 26px;
+  padding: 0 7px;
+  color: #66767d;
+  background: #f5f7f6;
+  border: 1px solid #d3dcda;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.canvas-toggle:hover {
+  color: #245964;
+  border-color: #9fbfbd;
+}
+
+.canvas-toggle.active {
+  color: #17676c;
+  background: #e2f3f0;
+  border-color: #a8d9d4;
+}
+
 .zoom-value {
   width: 38px;
   color: #75838a;
@@ -591,16 +621,6 @@ select:focus-visible {
   min-height: 0;
   overflow: auto;
   background-color: #f3f4f0;
-  background-image:
-    linear-gradient(#dce2df 1px, transparent 1px),
-    linear-gradient(90deg, #dce2df 1px, transparent 1px),
-    linear-gradient(#e8ece9 1px, transparent 1px),
-    linear-gradient(90deg, #e8ece9 1px, transparent 1px);
-  background-size:
-    80px 80px,
-    80px 80px,
-    16px 16px,
-    16px 16px;
 }
 
 .canvas-zoom {
@@ -612,6 +632,24 @@ select:focus-visible {
   inset: 0 auto auto 0;
   transform-origin: 0 0;
   touch-action: none;
+}
+
+.canvas.grid-visible {
+  background-image:
+    linear-gradient(rgba(172, 187, 184, 0.72) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(172, 187, 184, 0.72) 1px, transparent 1px),
+    linear-gradient(rgba(216, 225, 222, 0.72) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216, 225, 222, 0.72) 1px, transparent 1px);
+  background-position:
+    var(--grid-major-position-x) var(--grid-major-position-y),
+    var(--grid-major-position-x) var(--grid-major-position-y),
+    var(--grid-minor-position-x) var(--grid-minor-position-y),
+    var(--grid-minor-position-x) var(--grid-minor-position-y);
+  background-size:
+    var(--grid-major-size) var(--grid-major-size),
+    var(--grid-major-size) var(--grid-major-size),
+    var(--grid-minor-size) var(--grid-minor-size),
+    var(--grid-minor-size) var(--grid-minor-size);
 }
 
 .link-layer {

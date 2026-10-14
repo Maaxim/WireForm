@@ -17,12 +17,20 @@ export interface Point {
   y: number;
 }
 
+export interface WorldViewTransform {
+  zoom: number;
+  worldOrigin: Point;
+  screenOrigin: Point;
+}
+
 export const WORKSPACE_MARGIN = 400;
 export const MIN_WORKSPACE_WIDTH = 1480;
 export const MIN_WORKSPACE_HEIGHT = 820;
 export const MIN_ZOOM = 0.25;
 export const MAX_ZOOM = 1.25;
 export const FIT_PADDING = 48;
+export const GRID_SCREEN_TARGET = 30;
+export const GRID_MAJOR_DIVISIONS = 5;
 
 export function boundsWidth(bounds: Bounds) {
   return bounds.maxX - bounds.minX;
@@ -131,6 +139,118 @@ export function workspaceToWorld(point: Point, workspace: Bounds): Point {
 
 export function screenDeltaToWorld(delta: number, zoom: number) {
   return Number.isFinite(zoom) && zoom > 0 ? delta / zoom : 0;
+}
+
+export function worldToScreen(
+  point: Point,
+  transform: WorldViewTransform,
+): Point {
+  const zoom = Number.isFinite(transform.zoom) && transform.zoom > 0
+    ? transform.zoom
+    : 1;
+  return {
+    x:
+      transform.screenOrigin.x +
+      (point.x - transform.worldOrigin.x) * zoom,
+    y:
+      transform.screenOrigin.y +
+      (point.y - transform.worldOrigin.y) * zoom,
+  };
+}
+
+export function screenToWorld(
+  point: Point,
+  transform: WorldViewTransform,
+): Point {
+  const zoom = Number.isFinite(transform.zoom) && transform.zoom > 0
+    ? transform.zoom
+    : 1;
+  return {
+    x:
+      transform.worldOrigin.x +
+      (point.x - transform.screenOrigin.x) / zoom,
+    y:
+      transform.worldOrigin.y +
+      (point.y - transform.screenOrigin.y) / zoom,
+  };
+}
+
+function stableNumber(value: number) {
+  return Object.is(value, -0) ? 0 : Number(value.toFixed(10));
+}
+
+export function getAdaptiveGridStep(
+  zoom: number,
+  targetScreenSpacing = GRID_SCREEN_TARGET,
+) {
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const safeTarget =
+    Number.isFinite(targetScreenSpacing) && targetScreenSpacing > 0
+      ? targetScreenSpacing
+      : GRID_SCREEN_TARGET;
+  const idealWorldStep = safeTarget / safeZoom;
+  const exponent = Math.floor(Math.log10(idealWorldStep));
+  const candidates: number[] = [];
+  for (let candidateExponent = exponent - 1; candidateExponent <= exponent + 1; candidateExponent += 1) {
+    const magnitude = 10 ** candidateExponent;
+    for (const multiplier of [1, 2, 5]) {
+      candidates.push(multiplier * magnitude);
+    }
+  }
+  return stableNumber(
+    candidates.reduce((best, candidate) => {
+      const difference = Math.abs(candidate * safeZoom - safeTarget);
+      const bestDifference = Math.abs(best * safeZoom - safeTarget);
+      return difference < bestDifference ||
+        (difference === bestDifference && candidate < best)
+        ? candidate
+        : best;
+    }),
+  );
+}
+
+export function gridLineOffset(worldMinimum: number, step: number) {
+  if (!Number.isFinite(worldMinimum) || !Number.isFinite(step) || step <= 0) {
+    return 0;
+  }
+  const remainder = (-worldMinimum) % step;
+  return stableNumber(remainder < 0 ? remainder + step : remainder);
+}
+
+export function snapToGrid(value: number, step: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+    return value;
+  }
+  return stableNumber(Math.round(value / step) * step);
+}
+
+export function snapWorldPoint(point: Point, step: number): Point {
+  return {
+    x: snapToGrid(point.x, step),
+    y: snapToGrid(point.y, step),
+  };
+}
+
+export function getDragWorldDelta(
+  anchor: Point,
+  screenDelta: Point,
+  zoom: number,
+  gridStep: number,
+  snapping: boolean,
+): Point {
+  const rawDelta = {
+    x: screenDeltaToWorld(screenDelta.x, zoom),
+    y: screenDeltaToWorld(screenDelta.y, zoom),
+  };
+  if (!snapping) return rawDelta;
+  const snapped = snapWorldPoint(
+    { x: anchor.x + rawDelta.x, y: anchor.y + rawDelta.y },
+    gridStep,
+  );
+  return {
+    x: stableNumber(snapped.x - anchor.x),
+    y: stableNumber(snapped.y - anchor.y),
+  };
 }
 
 export function fitBoundsToViewport(

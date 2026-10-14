@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -203,16 +204,19 @@ import {
   validateWireColors,
 } from "./wire-colors";
 import {
+  GRID_MAJOR_DIVISIONS,
   MAX_ZOOM,
   MIN_ZOOM,
   boundsHeight,
   boundsWidth,
   fitBoundsToViewport,
+  getAdaptiveGridStep,
   getContentBounds,
+  getDragWorldDelta,
   getWorkspaceBounds,
-  screenDeltaToWorld,
+  gridLineOffset,
+  screenToWorld,
   unionBounds,
-  workspaceToWorld,
   worldToWorkspace,
   type Bounds,
   type LayoutRect,
@@ -225,6 +229,7 @@ interface ValidationResult {
 
 interface DragState {
   ids: string[];
+  anchorId: string;
   startX: number;
   startY: number;
   origins: Record<string, { x: number; y: number }>;
@@ -965,6 +970,8 @@ export function HarnessStudio() {
   >([]);
   const [pendingPort, setPendingPort] = useState<PortRef | null>(null);
   const [zoom, setZoom] = useState(0.9);
+  const [showGrid, setShowGrid] = useState(true);
+  const [snapToGridEnabled, setSnapToGridEnabled] = useState(true);
   const [activeOutput, setActiveOutput] = useState<"preview" | "yaml">(
     "preview",
   );
@@ -1125,6 +1132,32 @@ export function HarnessStudio() {
   );
   const workspaceWidth = boundsWidth(workspaceBounds);
   const workspaceHeight = boundsHeight(workspaceBounds);
+  const activeGridStep = getAdaptiveGridStep(zoom);
+  const majorGridStep = activeGridStep * GRID_MAJOR_DIVISIONS;
+  const canvasGridStyle = useMemo(
+    () =>
+      ({
+        "--grid-minor-size": `${activeGridStep}px`,
+        "--grid-major-size": `${majorGridStep}px`,
+        "--grid-minor-position-x": `${gridLineOffset(
+          workspaceBounds.minX,
+          activeGridStep,
+        )}px`,
+        "--grid-minor-position-y": `${gridLineOffset(
+          workspaceBounds.minY,
+          activeGridStep,
+        )}px`,
+        "--grid-major-position-x": `${gridLineOffset(
+          workspaceBounds.minX,
+          majorGridStep,
+        )}px`,
+        "--grid-major-position-y": `${gridLineOffset(
+          workspaceBounds.minY,
+          majorGridStep,
+        )}px`,
+      }) as CSSProperties,
+    [activeGridStep, majorGridStep, workspaceBounds.minX, workspaceBounds.minY],
+  );
 
   const positionConnectionTooltip = useCallback((clientX: number, clientY: number) => {
     connectionTooltipPositionRef.current = { x: clientX, y: clientY };
@@ -2078,6 +2111,7 @@ export function HarnessStudio() {
     setDragWorkspaceBounds(calculatedWorkspaceBounds);
     setDrag({
       ids,
+      anchorId: node.id,
       startX: event.clientX,
       startY: event.clientY,
       origins,
@@ -2087,17 +2121,40 @@ export function HarnessStudio() {
 
   const onDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drag) return;
-    const rawDx = screenDeltaToWorld(event.clientX - drag.startX, zoom);
-    const rawDy = screenDeltaToWorld(event.clientY - drag.startY, zoom);
-    if (Math.abs(rawDx) > 2 || Math.abs(rawDy) > 2) {
-      dragDidMoveRef.current = true;
+    const screenDelta = {
+      x: event.clientX - drag.startX,
+      y: event.clientY - drag.startY,
+    };
+    if (Math.hypot(screenDelta.x, screenDelta.y) <= 2 && !dragDidMoveRef.current) {
+      return;
     }
+    const anchor = drag.origins[drag.anchorId];
+    if (!anchor) return;
+    dragDidMoveRef.current = true;
+    const delta = getDragWorldDelta(
+      anchor,
+      screenDelta,
+      zoom,
+      activeGridStep,
+      snapToGridEnabled && !event.altKey,
+    );
+    const positionChanged = drag.ids.some((id) => {
+      const component = project.components.find((candidate) => candidate.id === id);
+      const origin = drag.origins[id];
+      return Boolean(
+        component &&
+          origin &&
+          (component.x !== origin.x + delta.x ||
+            component.y !== origin.y + delta.y),
+      );
+    });
+    if (!positionChanged) return;
     const movedComponents = project.components.map((component) =>
       drag.origins[component.id]
         ? {
             ...component,
-            x: drag.origins[component.id].x + rawDx,
-            y: drag.origins[component.id].y + rawDy,
+            x: drag.origins[component.id].x + delta.x,
+            y: drag.origins[component.id].y + delta.y,
           }
         : component,
     );
@@ -2113,8 +2170,8 @@ export function HarnessStudio() {
         drag.origins[component.id]
           ? {
               ...component,
-              x: drag.origins[component.id].x + rawDx,
-              y: drag.origins[component.id].y + rawDy,
+              x: drag.origins[component.id].x + delta.x,
+              y: drag.origins[component.id].y + delta.y,
             }
           : component,
       ),
@@ -2126,7 +2183,14 @@ export function HarnessStudio() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (dragDidMoveRef.current) {
+    const finalPositionChanged = drag.ids.some((id) => {
+      const before = drag.before.components.find((component) => component.id === id);
+      const current = project.components.find((component) => component.id === id);
+      return Boolean(
+        before && current && (before.x !== current.x || before.y !== current.y),
+      );
+    });
+    if (finalPositionChanged) {
       pastRef.current.push(drag.before);
       futureRef.current = [];
       setHistoryState({ canUndo: true, canRedo: false });
@@ -2134,6 +2198,8 @@ export function HarnessStudio() {
       setNotice(
         `Moved ${drag.ids.length} component${drag.ids.length === 1 ? "" : "s"}.`,
       );
+    }
+    if (dragDidMoveRef.current) {
       window.setTimeout(() => {
         dragDidMoveRef.current = false;
       }, 0);
@@ -2146,10 +2212,14 @@ export function HarnessStudio() {
     event: React.PointerEvent<HTMLDivElement>,
   ): { x: number; y: number } => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return workspaceToWorld({
-      x: (event.clientX - bounds.left) / zoom,
-      y: (event.clientY - bounds.top) / zoom,
-    }, workspaceBounds);
+    return screenToWorld(
+      { x: event.clientX, y: event.clientY },
+      {
+        zoom,
+        worldOrigin: { x: workspaceBounds.minX, y: workspaceBounds.minY },
+        screenOrigin: { x: bounds.left, y: bounds.top },
+      },
+    );
   };
 
   const onCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -3103,6 +3173,29 @@ export function HarnessStudio() {
                   <X size={13} />
                 </button>
               )}
+              <div
+                className="canvas-grid-controls"
+                role="group"
+                aria-label="Grid controls"
+              >
+                <button
+                  className={`canvas-toggle ${showGrid ? "active" : ""}`}
+                  type="button"
+                  aria-pressed={showGrid}
+                  onClick={() => setShowGrid((value) => !value)}
+                >
+                  Show Grid
+                </button>
+                <button
+                  className={`canvas-toggle ${snapToGridEnabled ? "active" : ""}`}
+                  type="button"
+                  aria-pressed={snapToGridEnabled}
+                  title="Snap component anchors to the visible grid; hold Alt while dragging to bypass"
+                  onClick={() => setSnapToGridEnabled((value) => !value)}
+                >
+                  Snap to Grid
+                </button>
+              </div>
               <button
                 className="icon-button light"
                 onClick={zoomToFit}
@@ -3142,12 +3235,14 @@ export function HarnessStudio() {
               }}
             >
               <div
-                className="canvas"
+                className={`canvas ${showGrid ? "grid-visible" : ""}`}
                 style={{
+                  ...canvasGridStyle,
                   width: workspaceWidth,
                   height: workspaceHeight,
                   transform: `scale(${zoom})`,
-                }}
+                } as CSSProperties}
+                data-grid-step={activeGridStep}
                 data-workspace-min-x={workspaceBounds.minX}
                 data-workspace-min-y={workspaceBounds.minY}
                 data-workspace-max-x={workspaceBounds.maxX}
@@ -3595,7 +3690,8 @@ export function HarnessStudio() {
               <CircleDot size={14} />
               <span>{notice}</span>
               <span className="selection-help">
-                Drag empty space to select · Shift-click to add · ⌘/Ctrl+C/V
+                Drag empty space to select · Shift-click to add · Alt-drag for
+                free movement · ⌘/Ctrl+C/V
               </span>
               {validation.warnings.length > 0 && (
                 <span className="warning-count">
