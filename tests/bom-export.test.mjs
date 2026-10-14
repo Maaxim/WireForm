@@ -246,6 +246,7 @@ test("identical cable MPNs sum normalized lengths without conductor multiplicati
 
 test("bundle wire length counts each loose conductor", () => {
   const bundle = cable("bundle", "W1", "Example", "WIRE-A", "2 m", 3);
+  bundle.colors = ["RD", "RD", "RD"];
   const row = bom.buildBomRows(projectWith(bundle))[0];
   assert.equal(row.category, "Bundle wire");
   assert.equal(row.quantity, 6);

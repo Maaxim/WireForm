@@ -59,6 +59,13 @@ import {
 } from "./bom";
 import { buildConnectionHoverInfoIndex } from "./connection-hover";
 import {
+  getBundleConductorLengthOverride,
+  getEffectiveBundleConductorLength,
+  remapBundleConductorLengthOverrides,
+  validateBundleConductorLengths,
+  withBundleConductorLengthOverride,
+} from "./bundle-conductors";
+import {
   buildPhysicalConnectionMemberLinkIndex,
   physicalConnectionMemberKey,
 } from "./connection-topology";
@@ -844,6 +851,9 @@ function validateProject(project: HarnessProject): ValidationResult {
   const twistedPairIssues = validateTwistedPairs(project);
   errors.push(...twistedPairIssues.errors);
   warnings.push(...twistedPairIssues.warnings);
+  const bundleLengthIssues = validateBundleConductorLengths(project);
+  errors.push(...bundleLengthIssues.errors);
+  warnings.push(...bundleLengthIssues.warnings);
   const harnessImageIssues = validateHarnessImages(project);
   errors.push(...harnessImageIssues.errors);
   warnings.push(...harnessImageIssues.warnings);
@@ -1329,43 +1339,56 @@ export function HarnessStudio() {
     const usedDesignators = new Set(
       project.components.map((component) => component.designator),
     );
-    const pastedComponents = clipboard.components.map((component) => ({
-      ...component,
-      id: idMap.get(component.id) as string,
-      designator: copiedDesignator(component.designator, usedDesignators),
-      x: component.x + offset,
-      y: component.y + offset,
-      pinLabels: [...component.pinLabels],
-      wireLabels: [...component.wireLabels],
-      conductorIds: component.conductorIds.map((conductorId) =>
+    const pastedComponents = clipboard.components.map((component) => {
+      const conductorIds = component.conductorIds.map((conductorId) =>
         conductorIdMap.get(
           twistedPairMemberKey(bundleConductorMember(component.id, conductorId)),
         ) ?? createConductorId(),
-      ),
-      colors: [...component.colors],
-      additionalComponents: cloneAdditionalComponentsWithNewIds(
-        component.additionalComponents,
-      ),
-      approvedAlternatives: cloneApprovedAlternativesWithNewIds(
-        component.approvedAlternatives,
-      ),
-      shieldTerminations: cloneConnectorShieldTerminationsWithNewIds(
-        component.shieldTerminations,
-      ).terminations.map((termination, index) => {
-        const old = component.shieldTerminations?.[index];
-        const mappedPort = old
-          ? shieldPortIdMap.get(
-              `${component.id}/${connectorShieldPortId(old.id)}`,
-            )
-          : undefined;
-        return mappedPort
-          ? {
-              ...termination,
-              id: connectorShieldTerminationIdFromPort(mappedPort)!,
-            }
-          : termination;
-      }),
-    }));
+      );
+      const simpleConductorIdMap = new Map(
+        component.conductorIds.map((conductorId, index) => [
+          conductorId,
+          conductorIds[index],
+        ]),
+      );
+      return {
+        ...component,
+        id: idMap.get(component.id) as string,
+        designator: copiedDesignator(component.designator, usedDesignators),
+        x: component.x + offset,
+        y: component.y + offset,
+        pinLabels: [...component.pinLabels],
+        wireLabels: [...component.wireLabels],
+        conductorIds,
+        conductorLengthOverrides: remapBundleConductorLengthOverrides(
+          component.conductorLengthOverrides,
+          simpleConductorIdMap,
+        ),
+        colors: [...component.colors],
+        additionalComponents: cloneAdditionalComponentsWithNewIds(
+          component.additionalComponents,
+        ),
+        approvedAlternatives: cloneApprovedAlternativesWithNewIds(
+          component.approvedAlternatives,
+        ),
+        shieldTerminations: cloneConnectorShieldTerminationsWithNewIds(
+          component.shieldTerminations,
+        ).terminations.map((termination, index) => {
+          const old = component.shieldTerminations?.[index];
+          const mappedPort = old
+            ? shieldPortIdMap.get(
+                `${component.id}/${connectorShieldPortId(old.id)}`,
+              )
+            : undefined;
+          return mappedPort
+            ? {
+                ...termination,
+                id: connectorShieldTerminationIdFromPort(mappedPort)!,
+              }
+            : termination;
+        }),
+      };
+    });
     const pastedLinks = clipboard.links.map((link, index) =>
       remapTopologyLink(link, `${idPrefix}-link-${index}`, idMap, shieldPortIdMap),
     );
@@ -1932,6 +1955,16 @@ export function HarnessStudio() {
           { length: nextCount },
           (_, index) => node.conductorIds[index] ?? createConductorId(),
         );
+        if (node.kind === "bundle" && node.conductorLengthOverrides) {
+          node.conductorLengthOverrides = Object.fromEntries(
+            Object.entries(node.conductorLengthOverrides).filter(([conductorId]) =>
+              node.conductorIds.includes(conductorId),
+            ),
+          );
+          if (!Object.keys(node.conductorLengthOverrides).length) {
+            delete node.conductorLengthOverrides;
+          }
+        }
         if (removedConductorIds.size) {
           draft.twistedPairs = withoutTwistedPairsForConductorIds(
             draft.twistedPairs,
@@ -4394,6 +4427,7 @@ export function HarnessStudio() {
                                 <th>Conductor</th>
                                 <th>Label</th>
                                 <th>Color</th>
+                                <th>Length</th>
                                 <th>Twisted pair</th>
                               </tr>
                             </thead>
@@ -4418,6 +4452,18 @@ export function HarnessStudio() {
                                           !sameTwistedPairMember(member, ownRef),
                                       )
                                     : undefined;
+                                  const lengthOverride = conductorId
+                                    ? getBundleConductorLengthOverride(
+                                        selected,
+                                        conductorId,
+                                      )
+                                    : undefined;
+                                  const effectiveLength = conductorId
+                                    ? getEffectiveBundleConductorLength(
+                                        selected,
+                                        conductorId,
+                                      )
+                                    : selected.length;
                                   return (
                                     <tr key={conductorId ?? index}>
                                       <td>
@@ -4469,6 +4515,50 @@ export function HarnessStudio() {
                                             updateSelected({ colors });
                                           }}
                                         />
+                                      </td>
+                                      <td>
+                                        <div className="bundle-length-editor">
+                                          <input
+                                            aria-label={`Conductor ${index + 1} length override`}
+                                            value={lengthOverride ?? ""}
+                                            placeholder="Use default"
+                                            onChange={(event) => {
+                                              if (!conductorId) return;
+                                              updateSelected({
+                                                conductorLengthOverrides:
+                                                  withBundleConductorLengthOverride(
+                                                    selected,
+                                                    conductorId,
+                                                    event.target.value,
+                                                  ),
+                                              });
+                                            }}
+                                          />
+                                          {lengthOverride !== undefined ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (!conductorId) return;
+                                                updateSelected({
+                                                  conductorLengthOverrides:
+                                                    withBundleConductorLengthOverride(
+                                                      selected,
+                                                      conductorId,
+                                                      undefined,
+                                                    ),
+                                                });
+                                              }}
+                                            >
+                                              Use default
+                                            </button>
+                                          ) : null}
+                                          <small>
+                                            {effectiveLength || "Missing"}
+                                            {lengthOverride === undefined
+                                              ? " (default)"
+                                              : ""}
+                                          </small>
+                                        </div>
                                       </td>
                                       <td>
                                         {pair
@@ -4652,7 +4742,13 @@ export function HarnessStudio() {
                             placeholder="22 AWG"
                           />
                         </Field>
-                        <Field label="Length">
+                        <Field
+                          label={
+                            selected.kind === "bundle"
+                              ? "Default length"
+                              : "Length"
+                          }
+                        >
                           <input
                             value={selected.length}
                             onChange={(event) =>

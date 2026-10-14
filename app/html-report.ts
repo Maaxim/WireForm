@@ -53,6 +53,7 @@ import {
   buildConnectionMappingRows,
   type ReportConnectionMappingRow,
 } from "./connection-mapping.ts";
+import { getEffectiveBundleConductorLength } from "./bundle-conductors.ts";
 
 export interface ReportProjectMetadata {
   title: string;
@@ -131,6 +132,8 @@ export interface ReportConductor {
   number: number;
   label: string;
   color: string;
+  gauge: string;
+  length: string;
   twistedPair: string;
 }
 
@@ -470,7 +473,7 @@ function buildCables(project: HarnessProject): ReportCable[] {
         manufacturer: component.manufacturer,
         mpn: component.mpn,
         description: component.name,
-        length: component.length,
+        length: component.kind === "bundle" ? "" : component.length,
         conductorCount: component.wireCount,
         gauge: component.gauge,
         color: component.kind === "wire" ? clean(component.colors[0]) : "",
@@ -506,6 +509,11 @@ function buildCables(project: HarnessProject): ReportCable[] {
               number: conductorIndex + 1,
               label: component.wireLabels[conductorIndex] ?? "",
               color: component.colors[conductorIndex] ?? "",
+              gauge: component.gauge,
+              length:
+                component.kind === "bundle" && conductorId
+                  ? getEffectiveBundleConductorLength(component, conductorId)
+                  : component.length,
               twistedPair: conductorPair
                 ? `${conductorPair.designator}${other ? ` / ${getTwistedPairMemberDisplay(project, other)}` : ""}`
                 : "",
@@ -1224,6 +1232,8 @@ function cableConductorsSection(cable: ReportCable) {
         render: (row) => renderWireColorHtml(row.color),
         optional: true,
       },
+      { heading: "Wire size", value: (row) => row.gauge, optional: true },
+      { heading: "Length", value: (row) => row.length },
       { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
     ],
     "",

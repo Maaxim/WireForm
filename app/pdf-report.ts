@@ -477,6 +477,8 @@ const CONDUCTOR_COLUMNS: Array<PdfColumn<ReportConductor>> = [
     width: 105,
     optional: true,
   },
+  { heading: "Size", value: (row) => row.gauge, width: 52, optional: true },
+  { heading: "Length", value: (row) => row.length, width: 52 },
   { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
 ];
 

@@ -1,0 +1,31 @@
+const LENGTH_FACTORS_TO_METERS: Record<string, number> = {
+  m: 1,
+  meter: 1,
+  meters: 1,
+  metre: 1,
+  metres: 1,
+  cm: 0.01,
+  mm: 0.001,
+  km: 1_000,
+  in: 0.0254,
+  inch: 0.0254,
+  inches: 0.0254,
+  '"': 0.0254,
+  ft: 0.3048,
+  foot: 0.3048,
+  feet: 0.3048,
+  yd: 0.9144,
+  yard: 0.9144,
+  yards: 0.9144,
+};
+
+export function parseLengthMeters(value: string) {
+  const match = /^\s*(\d+(?:[.,]\d+)?)\s*([A-Za-z"]+)\s*$/.exec(value);
+  if (!match) return undefined;
+  const quantity = Number(match[1].replace(",", "."));
+  const factor = LENGTH_FACTORS_TO_METERS[match[2].toLowerCase()];
+  if (!Number.isFinite(quantity) || quantity <= 0 || factor === undefined) {
+    return undefined;
+  }
+  return Number((quantity * factor).toFixed(9));
+}

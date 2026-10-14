@@ -23,6 +23,7 @@ import {
   connectorShieldLabel,
   findConnectorShieldTermination,
 } from "./connector-shields.ts";
+import { getEffectiveBundleConductorLength } from "./bundle-conductors.ts";
 
 export interface BomRow {
   category: string;
@@ -43,6 +44,7 @@ export type BomApprovedAlternative = Pick<
 
 interface BomContribution extends BomRow {
   identityDescription: string;
+  variantKey?: string;
 }
 
 interface AggregatedContribution {
@@ -125,15 +127,16 @@ function componentCategory(component: HarnessComponent) {
   return categories[component.kind];
 }
 
-function componentDescription(component: HarnessComponent) {
+function componentDescription(component: HarnessComponent, colorCode?: string) {
   const name = clean(component.name) || componentCategory(component);
   const gauge = CABLE_KINDS.includes(component.kind)
     ? clean(component.gauge)
     : "";
-  const color =
-    component.kind === "wire" && clean(component.colors[0])
-      ? getWireColorDisplay(component.colors[0])
-      : "";
+  const colorCodeValue =
+    colorCode ?? (component.kind === "wire" ? component.colors[0] : "");
+  const color = clean(colorCodeValue)
+    ? getWireColorDisplay(colorCodeValue)
+    : "";
   const details = [gauge, color].filter(Boolean);
   return details.length ? `${name} (${details.join(", ")})` : name;
 }
@@ -161,13 +164,25 @@ function baseComponentContribution(
   };
 }
 
-function cableContribution(component: HarnessComponent): BomContribution {
+function cableContribution(
+  component: HarnessComponent,
+  modeledLength = component.length,
+  colorCode?: string,
+): BomContribution {
   const base = baseComponentContribution(component);
-  const meters = parseLengthMeters(component.length);
+  const description = componentDescription(component, colorCode);
+  const meters = parseLengthMeters(modeledLength);
+  const variantKey =
+    component.kind === "bundle"
+      ? JSON.stringify([clean(component.gauge), clean(colorCode).toUpperCase()])
+      : undefined;
   if (meters === undefined) {
-    const rawLength = clean(component.length);
+    const rawLength = clean(modeledLength);
     return {
       ...base,
+      description,
+      identityDescription: description,
+      ...(variantKey ? { variantKey } : {}),
       notes: [
         base.notes,
         rawLength
@@ -178,12 +193,28 @@ function cableContribution(component: HarnessComponent): BomContribution {
         .join("; "),
     };
   }
-  const multiplier = component.kind === "bundle" ? component.wireCount : 1;
   return {
     ...base,
-    quantity: roundedQuantity(meters * Math.max(multiplier, 1)),
+    description,
+    identityDescription: description,
+    ...(variantKey ? { variantKey } : {}),
+    quantity: roundedQuantity(meters),
     unit: "m",
   };
+}
+
+function cableContributions(component: HarnessComponent): BomContribution[] {
+  if (component.kind !== "bundle") return [cableContribution(component)];
+  return Array.from({ length: component.wireCount }, (_, index) => {
+    const conductorId = component.conductorIds[index];
+    return cableContribution(
+      component,
+      conductorId
+        ? getEffectiveBundleConductorLength(component, conductorId)
+        : component.length,
+      component.colors[index] ?? "",
+    );
+  });
 }
 
 function partContribution(
@@ -264,6 +295,7 @@ function groupingKey(contribution: BomContribution) {
   return JSON.stringify([
     contribution.category,
     ...identity,
+    contribution.variantKey ?? "",
     contribution.unit,
     canonicalApprovedAlternativeSet(contribution.approvedAlternatives),
   ]);
@@ -350,9 +382,9 @@ export function buildBomRows(project: HarnessProject) {
   const contributions: BomContribution[] = [];
   for (const component of project.components) {
     contributions.push(
-      CABLE_KINDS.includes(component.kind)
-        ? cableContribution(component)
-        : baseComponentContribution(component),
+      ...(CABLE_KINDS.includes(component.kind)
+        ? cableContributions(component)
+        : [baseComponentContribution(component)]),
     );
     for (const additional of component.additionalComponents ?? []) {
       const contribution = additionalContribution(

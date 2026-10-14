@@ -104,6 +104,7 @@ export interface HarnessComponent {
   pinLabels: string[];
   wireLabels: string[];
   conductorIds: string[];
+  conductorLengthOverrides?: Record<string, string>;
   colors: string[];
   gauge: string;
   length: string;
@@ -672,6 +673,19 @@ function normalizeComponent(
     conductorIds.push(conductorId);
     usedConductorIds.add(conductorId);
   }
+  const rawLengthOverrides =
+    kind === "bundle" ? recordValue(source.conductorLengthOverrides) : undefined;
+  const conductorLengthOverrides: Record<string, string> = {};
+  if (rawLengthOverrides) {
+    for (let conductorIndex = 0; conductorIndex < wireCount; conductorIndex += 1) {
+      const rawId = rawConductorIds[conductorIndex]?.trim();
+      const conductorId = conductorIds[conductorIndex];
+      const rawValue =
+        rawLengthOverrides[rawId === conductorId ? rawId : conductorId];
+      const length = nonEmptyText(rawValue, 160);
+      if (length) conductorLengthOverrides[conductorId] = length;
+    }
+  }
   return {
     ...base,
     id,
@@ -694,6 +708,9 @@ function normalizeComponent(
     pinLabels: stringList(source.pinLabels).slice(0, pinCount),
     wireLabels: stringList(source.wireLabels).slice(0, wireCount),
     conductorIds,
+    ...(Object.keys(conductorLengthOverrides).length
+      ? { conductorLengthOverrides }
+      : {}),
     colors: stringList(source.colors)
       .slice(0, wireCount)
       .map((color) => color.toUpperCase()),

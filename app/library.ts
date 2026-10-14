@@ -16,6 +16,7 @@ import {
   supportsApprovedAlternatives,
 } from "./approved-alternatives.ts";
 import { cloneConnectorShieldTerminationsWithNewIds } from "./connector-shields.ts";
+import { remapBundleConductorLengthOverrides } from "./bundle-conductors.ts";
 
 export const LIBRARY_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const LIBRARY_FILE_FORMAT = "wireviz-gui-component-library";
@@ -290,6 +291,31 @@ function normalizedTemplate(
         }];
       })
     : [];
+  const templateConductorIds = Array.from(
+    { length: wireCount },
+    (_, conductorIndex) => {
+      const values = Array.isArray(componentSource.conductorIds)
+        ? componentSource.conductorIds
+        : [];
+      return textValue(
+        values[conductorIndex],
+        `${base.id}-conductor-${conductorIndex + 1}`,
+        240,
+      );
+    },
+  );
+  const rawLengthOverrides =
+    kind === "bundle"
+      ? recordValue(componentSource.conductorLengthOverrides)
+      : undefined;
+  const conductorLengthOverrides = rawLengthOverrides
+    ? Object.fromEntries(
+        templateConductorIds.flatMap((conductorId) => {
+          const value = textValue(rawLengthOverrides[conductorId], "", 160).trim();
+          return value ? [[conductorId, value]] : [];
+        }),
+      )
+    : undefined;
   return {
     id: textValue(source.id, createId("template"), 240),
     name: textValue(
@@ -313,16 +339,11 @@ function normalizedTemplate(
             .slice(0, wireCount)
             .map((label) => textValue(label, "", 300))
         : [],
-      conductorIds: Array.from({ length: wireCount }, (_, conductorIndex) => {
-        const values = Array.isArray(componentSource.conductorIds)
-          ? componentSource.conductorIds
-          : [];
-        return textValue(
-          values[conductorIndex],
-          `${base.id}-conductor-${conductorIndex + 1}`,
-          240,
-        );
-      }),
+      conductorIds: templateConductorIds,
+      ...(conductorLengthOverrides &&
+      Object.keys(conductorLengthOverrides).length
+        ? { conductorLengthOverrides }
+        : {}),
       colors: Array.isArray(componentSource.colors)
         ? componentSource.colors
             .slice(0, wireCount)
@@ -515,6 +536,10 @@ export function instantiateTemplateWithRelationships(
       id,
       component.conductorIds[conductorIndex],
     ]),
+  );
+  component.conductorLengthOverrides = remapBundleConductorLengthOverrides(
+    component.conductorLengthOverrides,
+    conductorIds,
   );
   const twistedPairs = (template.twistedPairs ?? []).flatMap((pair) => {
     const members = pair.members.flatMap((member) => {
