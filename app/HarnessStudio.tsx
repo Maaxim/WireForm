@@ -57,6 +57,14 @@ import {
   buildBomRows,
   serializeBomCsv,
 } from "./bom";
+import {
+  ONSHAPE_CSV_PROFILE,
+  buildOnshapeCableWireExport,
+  onshapeCsvFilenameForTitle,
+  onshapeExportHasErrors,
+  onshapeExportHasWarnings,
+  serializeOnshapeCableWireCsv,
+} from "./onshape-export";
 import { buildConnectionHoverInfoIndex } from "./connection-hover";
 import {
   getBundleConductorLengthOverride,
@@ -1017,6 +1025,9 @@ export function HarnessStudio() {
   const [dirty, setDirty] = useState(false);
   const [reportExporting, setReportExporting] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [onshapeExportOpen, setOnshapeExportOpen] = useState(false);
+  const [onshapeWarningsAcknowledged, setOnshapeWarningsAcknowledged] =
+    useState(false);
   const [libraries, setLibraries] = useState<LibraryCollection>(() =>
     createLibraryCollection(),
   );
@@ -1067,6 +1078,23 @@ export function HarnessStudio() {
     : undefined;
   const pairCreationIssue = twistedPairCreationIssue(project, selectedIds);
   const validation = useMemo(() => validateProject(project), [project]);
+  const onshapeExport = useMemo(
+    () => buildOnshapeCableWireExport(project),
+    [project],
+  );
+  const onshapeIssueCounts = useMemo(
+    () => ({
+      errors: onshapeExport.issues.filter((issue) => issue.severity === "error")
+        .length,
+      warnings: onshapeExport.issues.filter(
+        (issue) => issue.severity === "warning",
+      ).length,
+      information: onshapeExport.issues.filter(
+        (issue) => issue.severity === "info",
+      ).length,
+    }),
+    [onshapeExport],
+  );
   const connectionHoverInfoByMember = useMemo(
     () => buildConnectionHoverInfoIndex(project),
     [project],
@@ -2361,6 +2389,36 @@ export function HarnessStudio() {
     );
   };
 
+  const openOnshapeExport = () => {
+    setOnshapeWarningsAcknowledged(false);
+    setOnshapeExportOpen(true);
+  };
+
+  const downloadOnshapeCsv = () => {
+    if (onshapeExportHasErrors(onshapeExport)) {
+      setNotice("Resolve the Onshape export errors before downloading CSV.");
+      return;
+    }
+    if (
+      onshapeExportHasWarnings(onshapeExport) &&
+      !onshapeWarningsAcknowledged
+    ) {
+      setNotice("Acknowledge the Onshape export warnings before downloading CSV.");
+      return;
+    }
+    downloadText(
+      serializeOnshapeCableWireCsv(onshapeExport.rows),
+      onshapeCsvFilenameForTitle(project.title),
+      "text/csv;charset=utf-8",
+    );
+    setOnshapeExportOpen(false);
+    setNotice(
+      `Onshape Cable/Wire Routing CSV downloaded with ${onshapeExport.rows.length} physical conductor row${
+        onshapeExport.rows.length === 1 ? "" : "s"
+      }.`,
+    );
+  };
+
   const requestReportDiagram = () => {
     const worker = workerRef.current;
     if (!worker) {
@@ -2964,6 +3022,14 @@ export function HarnessStudio() {
             title="Export native BOM CSV"
           >
             <FileSpreadsheet size={16} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={openOnshapeExport}
+            aria-label="Export Onshape Cable/Wire Routing CSV"
+            title="Export native Onshape Cable/Wire Routing CSV"
+          >
+            <Cable size={16} />
           </button>
           <button
             className="icon-button"
@@ -4996,6 +5062,191 @@ export function HarnessStudio() {
           </div>
         )}
       </section>
+
+      {onshapeExportOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setOnshapeExportOpen(false);
+          }}
+        >
+          <section
+            className="modal onshape-export-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onshape-export-title"
+          >
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Native browser export</span>
+                <h2 id="onshape-export-title">
+                  Onshape Cable/Wire Routing CSV
+                </h2>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setOnshapeExportOpen(false)}
+                aria-label="Close Onshape export preview"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <div className="import-summary onshape-export-summary">
+              <div>
+                <strong>{onshapeExport.totals.candidates}</strong>
+                <span>conductors</span>
+              </div>
+              <div>
+                <strong>{onshapeExport.totals.exported}</strong>
+                <span>exportable</span>
+              </div>
+              <div>
+                <strong>{onshapeExport.totals.excluded}</strong>
+                <span>excluded</span>
+              </div>
+              <div>
+                <strong>{onshapeIssueCounts.errors}</strong>
+                <span>errors</span>
+              </div>
+              <div>
+                <strong>{onshapeIssueCounts.warnings}</strong>
+                <span>warnings</span>
+              </div>
+            </div>
+            <div className="modal-body onshape-export-body">
+              <p>
+                Profile: <strong>{ONSHAPE_CSV_PROFILE.name}</strong>. Import the
+                downloaded CSV as a document tab in Onshape, then select that
+                tab in the Cable/Wire Routing feature. Live import compatibility
+                was not verified in this environment.
+              </p>
+
+              <section className="onshape-kind-summary" aria-label="Conductor counts">
+                {(
+                  [
+                    ["wire", "Standalone wires"],
+                    ["cable-conductor", "Multicore conductors"],
+                    ["bundle-conductor", "Bundle conductors"],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <div key={kind}>
+                    <strong>{label}</strong>
+                    <span>
+                      {onshapeExport.totals.byKind[kind].exported} exportable /{" "}
+                      {onshapeExport.totals.byKind[kind].candidates} total
+                    </span>
+                  </div>
+                ))}
+              </section>
+
+              {onshapeExport.issues.length > 0 && (
+                <div className="onshape-issues">
+                  {(["error", "warning", "info"] as const).map((severity) => {
+                    const severityIssues = onshapeExport.issues.filter(
+                      (candidate) => candidate.severity === severity,
+                    );
+                    if (!severityIssues.length) return null;
+                    return (
+                      <section
+                        key={severity}
+                        className={`onshape-issue-group onshape-issue-${severity}`}
+                      >
+                        <h3>
+                          {severity === "info"
+                            ? "Information"
+                            : `${severity[0].toUpperCase()}${severity.slice(1)}s`}
+                        </h3>
+                        <ul>
+                          {severityIssues.map((candidate, index) => (
+                            <li key={`${candidate.code}-${index}`}>
+                              <code>{candidate.code}</code> {candidate.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
+
+              {onshapeExport.rows.length > 0 && (
+                <section className="onshape-preview-section">
+                  <h3>CSV preview</h3>
+                  <div className="onshape-preview-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Wire ID</th>
+                          <th>From Ref</th>
+                          <th>To Ref</th>
+                          <th>From Pin</th>
+                          <th>To Pin</th>
+                          <th>Gauge</th>
+                          <th>Color</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {onshapeExport.rows.slice(0, 25).map((row) => (
+                          <tr key={row.wireId}>
+                            <td>{row.wireId}</td>
+                            <td>{row.fromRef}</td>
+                            <td>{row.toRef}</td>
+                            <td>{row.fromPin}</td>
+                            <td>{row.toPin}</td>
+                            <td>{row.gauge}</td>
+                            <td>{row.color}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {onshapeExport.rows.length > 25 && (
+                    <p>{onshapeExport.rows.length - 25} more rows are not shown.</p>
+                  )}
+                </section>
+              )}
+
+              {onshapeExportHasWarnings(onshapeExport) &&
+                !onshapeExportHasErrors(onshapeExport) && (
+                  <label className="onshape-warning-acknowledgement">
+                    <input
+                      type="checkbox"
+                      checked={onshapeWarningsAcknowledged}
+                      onChange={(event) =>
+                        setOnshapeWarningsAcknowledged(event.target.checked)
+                      }
+                    />
+                    <span>
+                      I understand the listed compatibility warnings and any
+                      omitted shield data in this conductor-only CSV.
+                    </span>
+                  </label>
+                )}
+            </div>
+            <div className="modal-footer">
+              <button
+                className="secondary-button"
+                onClick={() => setOnshapeExportOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                onClick={downloadOnshapeCsv}
+                disabled={
+                  onshapeExportHasErrors(onshapeExport) ||
+                  (onshapeExportHasWarnings(onshapeExport) &&
+                    !onshapeWarningsAcknowledged)
+                }
+              >
+                <Download size={15} />
+                Download CSV
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {importCandidate && (
         <div
