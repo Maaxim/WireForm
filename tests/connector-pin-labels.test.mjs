@@ -188,12 +188,12 @@ test("shared report model keeps physical pin, label, and conductor signal separa
   )?.[1];
   assert.match(
     connectorSection,
-    /<th class="pinout-pin">Pin<\/th><th class="pinout-label">Label<\/th><th class="pinout-wire">Wire \/ Conductor<\/th><th class="pinout-color">Color<\/th>/,
+    /<th class="[^"]*pinout-pin">Pin<\/th><th class="[^"]*pinout-label">Label<\/th><th class="[^"]*pinout-wire">Wire \/ Conductor<\/th><th class="[^"]*pinout-color">Color<\/th>/,
   );
   assert.doesNotMatch(connectorSection, /<th>Signal<\/th>/);
   assert.match(
     connectorSection,
-    /<td class="pinout-label">B1<\/td><td class="pinout-wire">W1 \/ cond\. 3<\/td>/,
+    /<td class="[^"]*pinout-label">B1<\/td><td class="[^"]*pinout-wire">W1 \/ cond\. 3<\/td>/,
   );
   assert.match(html, />Pin label<\/th>/);
   assert.match(html, /FAN_PWM/);

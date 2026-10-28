@@ -1,7 +1,6 @@
 import type {
   Column,
   Content,
-  Size,
   TableCell,
   TDocumentDefinitions,
 } from "pdfmake/interfaces";
@@ -27,19 +26,39 @@ import {
   type ReportTwistedPair,
 } from "./html-report.ts";
 import type { ReportConnectionMappingRow } from "./connection-mapping.ts";
-import { PDF_COLORS, PDF_STYLES, PDF_TABLE_LAYOUT } from "./pdf-styles.ts";
+import {
+  PDF_COLORS,
+  PDF_STYLES,
+  PDF_TABLE_HORIZONTAL_PADDING,
+  PDF_TABLE_LAYOUT,
+  PDF_TABLE_LINE_WIDTH,
+} from "./pdf-styles.ts";
 import {
   getWireColorDisplay,
   parseWireColor,
 } from "./wire-colors.ts";
+import {
+  calculatePdfColumnWidths,
+  colorColumn,
+  compactColumn,
+  contentColumn,
+  flexColumn,
+  type ReportColumnLayout,
+} from "./report-table-layout.ts";
+
+interface PdfCellContext {
+  width: number;
+  noWrap: boolean;
+}
 
 interface PdfColumn<Row> {
   heading: string;
   value: (row: Row, index: number) => string | number;
-  cell?: (row: Row, index: number) => Content;
-  width?: Size;
+  measureValue?: (row: Row, index: number) => string | number;
+  cell?: (row: Row, index: number, context: PdfCellContext) => Content;
   optional?: boolean;
   numeric?: boolean;
+  layout: ReportColumnLayout;
 }
 
 export interface PdfRenderOptions {
@@ -56,6 +75,15 @@ const PDF_RASTER_IMAGE = /^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=\s]+$/;
 const PDF_PAGE_MARGINS = [42, 54, 42, 44] as const;
 const A4_PAGE_POINTS = { width: 595.28, height: 841.89 } as const;
 const DIAGRAM_HEADING_SPACE = 40;
+const PDF_TABLE_WIDTH =
+  A4_PAGE_POINTS.width - PDF_PAGE_MARGINS[0] - PDF_PAGE_MARGINS[2];
+export function getPdfTableContentWidth(columnCount: number) {
+  return (
+    PDF_TABLE_WIDTH -
+    columnCount * PDF_TABLE_HORIZONTAL_PADDING * 2 -
+    (columnCount + 1) * PDF_TABLE_LINE_WIDTH
+  );
+}
 
 export interface PdfDiagramLayout {
   pageOrientation: "portrait" | "landscape";
@@ -165,21 +193,36 @@ function table<Row>(
     (column) =>
       !column.optional || rows.some((row, index) => column.value(row, index) !== ""),
   );
-  const body: TableCell[][] = [
+  const allocation = calculatePdfColumnWidths(
     visible.map((column) => ({
+      heading: column.heading,
+      values: rows.map((row, index) =>
+        (column.measureValue ?? column.value)(row, index),
+      ),
+      layout: column.layout,
+    })),
+    getPdfTableContentWidth(visible.length),
+  );
+  const body: TableCell[][] = [
+    visible.map((column, columnIndex) => ({
       text: column.heading,
       style: "tableHeader",
       alignment: column.numeric ? "right" : "left",
+      ...(allocation.noWrap[columnIndex] ? { noWrap: true } : {}),
     }) as TableCell),
     ...rows.map((row, index) =>
-      visible.map((column) => {
+      visible.map((column, columnIndex) => {
         const value = column.value(row, index);
         return (value !== "" && column.cell
-          ? column.cell(row, index)
+          ? column.cell(row, index, {
+              width: allocation.widths[columnIndex],
+              noWrap: allocation.noWrap[columnIndex],
+            })
           : {
               text: text(value),
               style: "tableCell",
               alignment: column.numeric ? "right" : "left",
+              ...(allocation.noWrap[columnIndex] ? { noWrap: true } : {}),
               ...(value === "" ? { color: PDF_COLORS.muted } : {}),
             }) as TableCell;
       }),
@@ -189,7 +232,7 @@ function table<Row>(
     table: {
       headerRows: 1,
       keepWithHeaderRows: 1,
-      widths: visible.map((column) => column.width ?? "*"),
+      widths: allocation.widths,
       body,
     },
     layout: PDF_TABLE_LAYOUT,
@@ -236,9 +279,24 @@ function alternativesTable(alternatives: readonly BomApprovedAlternative[]): Con
     table(
       alternatives,
       [
-        { heading: "Manufacturer", value: (row) => row.manufacturer ?? "", width: "*", optional: true },
-        { heading: "MPN", value: (row) => row.mpn ?? "", width: "*", optional: true },
-        { heading: "Note", value: (row) => row.note ?? "", width: "*", optional: true },
+        {
+          heading: "Manufacturer",
+          value: (row) => row.manufacturer ?? "",
+          optional: true,
+          layout: contentColumn(),
+        },
+        {
+          heading: "MPN",
+          value: (row) => row.mpn ?? "",
+          optional: true,
+          layout: contentColumn(),
+        },
+        {
+          heading: "Note",
+          value: (row) => row.note ?? "",
+          optional: true,
+          layout: flexColumn(),
+        },
       ],
       "",
     ),
@@ -304,42 +362,104 @@ function pdfConnectionMappingConductorCell(
 }
 
 const PIN_COLUMNS: Array<PdfColumn<ReportPin>> = [
-  { heading: "Pin", value: (row) => row.pin, width: 28 },
-  { heading: "Label", value: (row) => row.label, width: 72, optional: true },
+  { heading: "Pin", value: (row) => row.pin, layout: compactColumn() },
+  {
+    heading: "Label",
+    value: (row) => row.label,
+    optional: true,
+    layout: contentColumn(),
+  },
   {
     heading: "Wire / Conductor",
     value: (row) => row.wireConductor,
     optional: true,
+    layout: flexColumn(),
   },
   {
     heading: "Color",
     value: (row) => row.color,
-    cell: (row) => pdfWireColorCell(row.color, true),
-    width: 170,
+    measureValue: (row) => getWireColorDisplay(row.color),
+    cell: (row, _index, context) => pdfWireColorCell(row.color, context.noWrap),
     optional: true,
+    layout: colorColumn(),
   },
 ];
 
 const CONNECTOR_COMPONENT_COLUMNS: Array<PdfColumn<ReportConnectorAdditionalComponent>> = [
-  { heading: "Type", value: (row) => row.type },
-  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-  { heading: "MPN", value: (row) => row.mpn, optional: true },
-  { heading: "Description", value: (row) => row.description, optional: true },
-  { heading: "Base", value: (row) => row.baseQuantity, width: 30, numeric: true },
-  { heading: "Mode", value: (row) => row.quantityMode, width: 62 },
-  { heading: "Calculated", value: (row) => row.calculatedQuantity, width: 45, numeric: true },
-  { heading: "Unit", value: (row) => row.unit, width: 30 },
-  { heading: "Notes", value: (row) => row.notes, optional: true },
+  { heading: "Type", value: (row) => row.type, layout: contentColumn() },
+  {
+    heading: "Manufacturer",
+    value: (row) => row.manufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "MPN",
+    value: (row) => row.mpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Description",
+    value: (row) => row.description,
+    optional: true,
+    layout: flexColumn({ flexWeight: 2 }),
+  },
+  {
+    heading: "Base",
+    value: (row) => row.baseQuantity,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  { heading: "Mode", value: (row) => row.quantityMode, layout: contentColumn() },
+  {
+    heading: "Calculated",
+    value: (row) => row.calculatedQuantity,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
+  {
+    heading: "Notes",
+    value: (row) => row.notes,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 const CABLE_COMPONENT_COLUMNS: Array<PdfColumn<ReportCableAdditionalComponent>> = [
-  { heading: "Type", value: (row) => row.type },
-  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-  { heading: "MPN", value: (row) => row.mpn, optional: true },
-  { heading: "Description", value: (row) => row.description, optional: true },
-  { heading: "Qty", value: (row) => row.calculatedQuantity, width: 35, numeric: true },
-  { heading: "Unit", value: (row) => row.unit, width: 30 },
-  { heading: "Placement", value: (row) => row.placement, optional: true },
+  { heading: "Type", value: (row) => row.type, layout: contentColumn() },
+  {
+    heading: "Manufacturer",
+    value: (row) => row.manufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "MPN",
+    value: (row) => row.mpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Description",
+    value: (row) => row.description,
+    optional: true,
+    layout: flexColumn({ flexWeight: 2 }),
+  },
+  {
+    heading: "Qty",
+    value: (row) => row.calculatedQuantity,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
+  {
+    heading: "Placement",
+    value: (row) => row.placement,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 function connectorContent(
@@ -407,8 +527,16 @@ function connectorContent(
           table(
             connector.shieldTerminations,
             [
-              { heading: "Label", value: (row) => row.label, width: 90 },
-              { heading: "Connected to", value: (row) => row.connectedTo },
+              {
+                heading: "Label",
+                value: (row) => row.label,
+                layout: contentColumn(),
+              },
+              {
+                heading: "Connected to",
+                value: (row) => row.connectedTo,
+                layout: flexColumn(),
+              },
             ],
             "",
           ),
@@ -428,70 +556,164 @@ function connectorContent(
 }
 
 const CABLE_COLUMNS: Array<PdfColumn<ReportCable>> = [
-  { heading: "Designator", value: (row) => row.designator, width: 48 },
-  { heading: "Type", value: (row) => row.kind, width: 42 },
-  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-  { heading: "MPN", value: (row) => row.mpn, optional: true },
-  { heading: "Description", value: (row) => row.description, optional: true },
-  { heading: "Length", value: (row) => row.length, width: 46, optional: true },
-  { heading: "Cond.", value: (row) => row.conductorCount, width: 28, numeric: true },
-  { heading: "Size", value: (row) => row.gauge, width: 46, optional: true },
+  {
+    heading: "Designator",
+    value: (row) => row.designator,
+    layout: contentColumn(),
+  },
+  { heading: "Type", value: (row) => row.kind, layout: contentColumn() },
+  {
+    heading: "Manufacturer",
+    value: (row) => row.manufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "MPN",
+    value: (row) => row.mpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Description",
+    value: (row) => row.description,
+    optional: true,
+    layout: flexColumn({ flexWeight: 2 }),
+  },
+  {
+    heading: "Length",
+    value: (row) => row.length,
+    optional: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Cond.",
+    value: (row) => row.conductorCount,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Size",
+    value: (row) => row.gauge,
+    optional: true,
+    layout: compactColumn(),
+  },
   {
     heading: "Color",
     value: (row) => row.color,
-    cell: (row) => pdfWireColorCell(row.color),
-    width: 105,
+    measureValue: (row) => getWireColorDisplay(row.color),
+    cell: (row, _index, context) => pdfWireColorCell(row.color, context.noWrap),
     optional: true,
+    layout: colorColumn(),
   },
-  { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
-  { heading: "Notes", value: (row) => row.notes, optional: true },
+  {
+    heading: "Twisted pair",
+    value: (row) => row.twistedPair,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Notes",
+    value: (row) => row.notes,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 const CONNECTION_MAPPING_COLUMNS: Array<
   PdfColumn<ReportConnectionMappingRow>
 > = [
-  { heading: "From", value: (row) => row.from.connectorDesignator, width: 48 },
-  { heading: "Pin", value: (row) => row.from.pinDisplay, width: 55 },
+  {
+    heading: "From",
+    value: (row) => row.from.connectorDesignator,
+    layout: contentColumn(),
+  },
+  { heading: "Pin", value: (row) => row.from.pinDisplay, layout: contentColumn() },
   {
     heading: "Wire / Conductor",
     value: (row) => row.conductor.display,
     cell: (row) => pdfConnectionMappingConductorCell(row),
-    width: "*",
+    layout: flexColumn({ flexWeight: 2, visualWidth: 31 }),
   },
   {
     heading: "TP",
     value: (row) => row.twistedPair?.designator ?? "",
-    width: 38,
+    layout: contentColumn(),
   },
-  { heading: "To", value: (row) => row.to.connectorDesignator, width: 55 },
-  { heading: "Pin", value: (row) => row.to.pinDisplay, width: 90 },
+  {
+    heading: "To",
+    value: (row) => row.to.connectorDesignator,
+    layout: contentColumn(),
+  },
+  { heading: "Pin", value: (row) => row.to.pinDisplay, layout: contentColumn() },
 ];
 
 const CONDUCTOR_COLUMNS: Array<PdfColumn<ReportConductor>> = [
-  { heading: "Conductor", value: (row) => row.number, width: 50, numeric: true },
-  { heading: "Label", value: (row) => row.label, optional: true },
+  {
+    heading: "Conductor",
+    value: (row) => row.number,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Label",
+    value: (row) => row.label,
+    optional: true,
+    layout: contentColumn(),
+  },
   {
     heading: "Color",
     value: (row) => row.color,
-    cell: (row) => pdfWireColorCell(row.color),
-    width: 105,
+    measureValue: (row) => getWireColorDisplay(row.color),
+    cell: (row, _index, context) => pdfWireColorCell(row.color, context.noWrap),
     optional: true,
+    layout: colorColumn(),
   },
-  { heading: "Size", value: (row) => row.gauge, width: 52, optional: true },
-  { heading: "Length", value: (row) => row.length, width: 52 },
-  { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
+  {
+    heading: "Size",
+    value: (row) => row.gauge,
+    optional: true,
+    layout: compactColumn(),
+  },
+  { heading: "Length", value: (row) => row.length, layout: compactColumn() },
+  {
+    heading: "Twisted pair",
+    value: (row) => row.twistedPair,
+    optional: true,
+    layout: contentColumn(),
+  },
 ];
 
 const COMPACT_CONNECTOR_COLUMNS: Array<PdfColumn<ReportConnector>> = [
-  { heading: "Designator", value: (row) => row.designator, width: 55 },
-  { heading: "Type", value: (row) => row.kind, width: 50 },
-  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-  { heading: "MPN", value: (row) => row.mpn, optional: true },
-  { heading: "Description", value: (row) => row.name, optional: true },
+  {
+    heading: "Designator",
+    value: (row) => row.designator,
+    layout: contentColumn(),
+  },
+  { heading: "Type", value: (row) => row.kind, layout: contentColumn() },
+  {
+    heading: "Manufacturer",
+    value: (row) => row.manufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "MPN",
+    value: (row) => row.mpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Description",
+    value: (row) => row.name,
+    optional: true,
+    layout: flexColumn(),
+  },
   {
     heading: "Pin label",
     value: (row) => row.pins[0]?.label ?? "",
     optional: true,
+    layout: contentColumn(),
   },
 ];
 
@@ -521,62 +743,160 @@ function cableDetails(cable: ReportCable): Content[] {
 }
 
 const TWISTED_PAIR_COLUMNS: Array<PdfColumn<ReportTwistedPair>> = [
-  { heading: "Pair", value: (row) => row.designator, width: 48 },
-  { heading: "Member A", value: (row) => row.wireA },
+  { heading: "Pair", value: (row) => row.designator, layout: compactColumn() },
+  { heading: "Member A", value: (row) => row.wireA, layout: contentColumn() },
   {
     heading: "Member A color",
     value: (row) => row.wireAColor,
-    cell: (row) => pdfWireColorCell(row.wireAColor),
-    width: 105,
+    measureValue: (row) => getWireColorDisplay(row.wireAColor),
+    cell: (row, _index, context) =>
+      pdfWireColorCell(row.wireAColor, context.noWrap),
     optional: true,
+    layout: colorColumn(),
   },
-  { heading: "Member B", value: (row) => row.wireB },
+  { heading: "Member B", value: (row) => row.wireB, layout: contentColumn() },
   {
     heading: "Member B color",
     value: (row) => row.wireBColor,
-    cell: (row) => pdfWireColorCell(row.wireBColor),
-    width: 105,
+    measureValue: (row) => getWireColorDisplay(row.wireBColor),
+    cell: (row, _index, context) =>
+      pdfWireColorCell(row.wireBColor, context.noWrap),
     optional: true,
+    layout: colorColumn(),
   },
-  { heading: "Pitch", value: (row) => row.pitch, width: 55, optional: true },
-  { heading: "Direction", value: (row) => row.direction, width: 62 },
-  { heading: "Notes", value: (row) => row.notes, optional: true },
+  {
+    heading: "Pitch",
+    value: (row) => row.pitch,
+    optional: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Direction",
+    value: (row) => row.direction,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Notes",
+    value: (row) => row.notes,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 const TERMINATION_COLUMNS: Array<PdfColumn<ReportTermination>> = [
-  { heading: "Connector", value: (row) => row.connector, width: 48 },
-  { heading: "Pin", value: (row) => row.pin, width: 28 },
-  { heading: "Label", value: (row) => row.pinLabel, optional: true },
-  { heading: "Wire", value: (row) => row.cable, width: 44 },
-  { heading: "Cond.", value: (row) => row.conductor, width: 44 },
-  { heading: "Signal", value: (row) => row.signal, optional: true },
-  { heading: "Contact mfr.", value: (row) => row.contactManufacturer, optional: true },
-  { heading: "Contact MPN", value: (row) => row.contactMpn, optional: true },
-  { heading: "Seal PN", value: (row) => row.sealPn, optional: true },
-  { heading: "Strip", value: (row) => row.stripLength, width: 42, optional: true },
-  { heading: "Tooling", value: (row) => row.tooling, optional: true },
-  { heading: "Notes", value: (row) => row.notes, optional: true },
+  {
+    heading: "Connector",
+    value: (row) => row.connector,
+    layout: contentColumn(),
+  },
+  { heading: "Pin", value: (row) => row.pin, layout: contentColumn() },
+  {
+    heading: "Label",
+    value: (row) => row.pinLabel,
+    optional: true,
+    layout: contentColumn(),
+  },
+  { heading: "Wire", value: (row) => row.cable, layout: flexColumn() },
+  { heading: "Cond.", value: (row) => row.conductor, layout: compactColumn() },
+  {
+    heading: "Signal",
+    value: (row) => row.signal,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Contact mfr.",
+    value: (row) => row.contactManufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Contact MPN",
+    value: (row) => row.contactMpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Seal PN",
+    value: (row) => row.sealPn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Strip",
+    value: (row) => row.stripLength,
+    optional: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Tooling",
+    value: (row) => row.tooling,
+    optional: true,
+    layout: flexColumn(),
+  },
+  {
+    heading: "Notes",
+    value: (row) => row.notes,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 const BOM_COLUMNS: Array<PdfColumn<BomRow>> = [
-  { heading: "Item", value: (_row, index) => index + 1, width: 24, numeric: true },
-  { heading: "Category", value: (row) => row.category, width: 62 },
-  { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-  { heading: "MPN", value: (row) => row.mpn, optional: true },
-  { heading: "Description", value: (row) => row.description, optional: true },
-  { heading: "Qty", value: (row) => formatBomQuantity(row.quantity), width: 34, numeric: true },
-  { heading: "Unit", value: (row) => row.unit, width: 32 },
+  {
+    heading: "Item",
+    value: (_row, index) => index + 1,
+    numeric: true,
+    layout: compactColumn(),
+  },
+  {
+    heading: "Category",
+    value: (row) => row.category,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Manufacturer",
+    value: (row) => row.manufacturer,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "MPN",
+    value: (row) => row.mpn,
+    optional: true,
+    layout: contentColumn(),
+  },
+  {
+    heading: "Description",
+    value: (row) => row.description,
+    optional: true,
+    layout: flexColumn({ flexWeight: 2 }),
+  },
+  {
+    heading: "Qty",
+    value: (row) => formatBomQuantity(row.quantity),
+    numeric: true,
+    layout: compactColumn(),
+  },
+  { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
   {
     heading: "Designators",
     value: (row) => formatReportDesignators(row.designators),
     optional: true,
+    layout: flexColumn(),
   },
   {
     heading: "Approved alternatives",
     value: (row) => formatApprovedAlternatives(row.approvedAlternatives),
     optional: true,
+    layout: flexColumn(),
   },
-  { heading: "Notes", value: (row) => row.notes, optional: true },
+  {
+    heading: "Notes",
+    value: (row) => row.notes,
+    optional: true,
+    layout: flexColumn(),
+  },
 ];
 
 function cover(model: HarnessReportModel): Content[] {

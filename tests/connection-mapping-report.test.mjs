@@ -289,7 +289,15 @@ test("PDF uses the same rows, order, repeated header, and compact portrait table
   assert.equal(mappingTable.table.body.length, report.connectionMapping.length + 1);
   assert.equal(mappingTable.table.headerRows, 1);
   assert.equal(mappingTable.table.keepWithHeaderRows, 1);
-  assert.deepEqual(mappingTable.table.widths, [48, 55, "*", 38, 55, 90]);
+  assert.ok(mappingTable.table.widths.every((width) => typeof width === "number"));
+  assert.ok(
+    Math.abs(
+      mappingTable.table.widths.reduce((sum, width) => sum + width, 0) -
+        pdfReport.getPdfTableContentWidth(mappingTable.table.widths.length),
+    ) < 0.02,
+  );
+  assert.ok(mappingTable.table.widths[2] > mappingTable.table.widths[0]);
+  assert.ok(mappingTable.table.widths[2] > mappingTable.table.widths[3]);
   assert.deepEqual(
     mappingTable.table.body.slice(1).map((cells) =>
       cells.map(contentText),

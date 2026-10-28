@@ -292,7 +292,16 @@ test("PDF pinout is compact while Terminations remains authoritative", () => {
     pinout.table.body[0].map((cell) => cell.text),
     ["Pin", "Label", "Wire / Conductor", "Color"],
   );
-  assert.deepEqual(pinout.table.widths, [28, 72, "*", 170]);
+  assert.ok(pinout.table.widths.every((width) => typeof width === "number"));
+  assert.ok(
+    Math.abs(
+      pinout.table.widths.reduce((sum, width) => sum + width, 0) -
+        pdfReport.getPdfTableContentWidth(pinout.table.widths.length),
+    ) < 0.02,
+  );
+  assert.ok(pinout.table.widths[0] < pinout.table.widths[1]);
+  assert.ok(pinout.table.widths[1] < pinout.table.widths[2]);
+  assert.ok(pinout.table.widths[3] > 100);
   const firstColorCell = pinout.table.body[1][3];
   assert.equal(firstColorCell.columns[0].width, 28);
   assert.equal(firstColorCell.columns[1].text, "Orange / White (OGWH)");
@@ -419,6 +428,65 @@ test("PDF restores pair color swatches and keeps bundle conductor TP context", (
   assert.ok(conductors);
   assert.match(allText(conductors), /Blue \/ White \(BUWH\)/);
   assert.match(allText(conductors), /TP2 \/ B1:PAIR_L/);
+});
+
+test("PDF Bundle Conductors reserves width and no-wraps common bicolor values", () => {
+  const project = projectFixture();
+  const bundle = project.components.find((item) => item.designator === "B1");
+  bundle.wireCount = 2;
+  bundle.wireLabels = ["PAIR_H", "PAIR_L"];
+  bundle.colors = ["GNYE", "OGWH"];
+  bundle.gauge = "12 AWG";
+  bundle.length = "50 cm";
+  project.twistedPairs.push({
+    id: "pair-bundle-layout",
+    designator: "TP2",
+    members: [
+      {
+        kind: "bundle-conductor",
+        bundleId: bundle.id,
+        conductorId: bundle.conductorIds[0],
+      },
+      {
+        kind: "bundle-conductor",
+        bundleId: bundle.id,
+        conductorId: bundle.conductorIds[1],
+      },
+    ],
+    twistDirection: "S",
+  });
+  const definition = pdfReport.buildHarnessPdfDocument(
+    htmlReport.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  const conductors = findNodes(definition.content, (node) => {
+    const headings = node.table?.body?.[0]?.map((cell) => cell.text) ?? [];
+    return headings.includes("Conductor") && headings.includes("Twisted pair");
+  })[0];
+  assert.ok(conductors);
+  assert.ok(conductors.table.widths.every((width) => typeof width === "number"));
+  assert.ok(
+    Math.abs(
+      conductors.table.widths.reduce((sum, width) => sum + width, 0) -
+        pdfReport.getPdfTableContentWidth(conductors.table.widths.length),
+    ) < 0.02,
+  );
+  assert.ok(conductors.table.widths[2] > conductors.table.widths[0]);
+  assert.ok(conductors.table.widths[2] > conductors.table.widths[3]);
+  assert.ok(conductors.table.widths[2] > conductors.table.widths[4]);
+  assert.match(allText(conductors), /Green \/ Yellow \(GNYE\)/);
+  assert.match(allText(conductors), /Orange \/ White \(OGWH\)/);
+  assert.match(allText(conductors), /12 AWG/);
+  assert.match(allText(conductors), /50 cm/);
+  assert.match(allText(conductors), /TP2/);
+  const noWrapColorText = findNodes(
+    conductors,
+    (node) =>
+      node.noWrap === true &&
+      /(?:Green \/ Yellow|Orange \/ White)/.test(String(node.text ?? "")),
+  );
+  assert.equal(noWrapColorText.length, 2);
+  const swatches = findNodes(conductors, (node) => Array.isArray(node.canvas));
+  assert.ok(swatches.length >= 2);
 });
 
 test("PDF groups accessories per cable and retains report-only BOM ranges", () => {

@@ -323,7 +323,7 @@ test("report groups compact accessory tables with each cable in natural order", 
   assert.match(w1Section, /Sleeve/);
   assert.match(w1Section, /Heat shrink/);
   assert.match(w1Section, /Both ends/);
-  assert.match(w1Section, /<th class="number">Qty<\/th>/);
+  assert.match(w1Section, /<th class="number report-col-compact report-nowrap">Qty<\/th>/);
   assert.doesNotMatch(w1Section, /Base qty|Calculated/);
   assert.deepEqual(value.bomRows, bomBefore);
 });

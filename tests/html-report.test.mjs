@@ -398,10 +398,10 @@ test("HTML cable summary omits endpoint lists and keeps Connection Mapping autho
   const mapping = html.match(
     /<section class="report-section" id="connection-mapping">([\s\S]*?)<\/section>/,
   )?.[1];
-  assert.match(mapping, /<th>From Connector<\/th>/);
-  assert.match(mapping, /<th>From Pin<\/th>/);
-  assert.match(mapping, /<th>To Connector<\/th>/);
-  assert.match(mapping, /<th>To Pin<\/th>/);
+  assert.match(mapping, /<th[^>]*>From Connector<\/th>/);
+  assert.match(mapping, /<th[^>]*>From Pin<\/th>/);
+  assert.match(mapping, /<th[^>]*>To Connector<\/th>/);
+  assert.match(mapping, /<th[^>]*>To Pin<\/th>/);
   assert.match(html, /id="terminations"/);
   assert.match(html, /Bundle Conductors/);
 });
@@ -417,30 +417,24 @@ test("connector pinouts stay local while Terminations retain manufacturing data"
   assert.ok(x1);
   assert.match(
     x1,
-    /<table class="pinout-table"><thead><tr><th class="pinout-pin">Pin<\/th><th class="pinout-label">Label<\/th><th class="pinout-wire">Wire \/ Conductor<\/th><th class="pinout-color">Color<\/th>/,
+    /<table class="report-table pinout-table"><thead><tr><th class="[^"]*report-col-compact[^"]*pinout-pin">Pin<\/th><th class="[^"]*report-col-content[^"]*pinout-label">Label<\/th><th class="[^"]*report-col-flex[^"]*pinout-wire">Wire \/ Conductor<\/th><th class="[^"]*report-col-content[^"]*pinout-color">Color<\/th>/,
   );
   assert.doesNotMatch(
     x1,
-    /<th>(?:Wire size|Contact manufacturer|Contact MPN|Seal PN|Strip length)<\/th>/,
+    /<th[^>]*>(?:Wire size|Contact manufacturer|Contact MPN|Seal PN|Strip length)<\/th>/,
   );
   assert.match(x1, /W1 \/ cond\. 1/);
   assert.match(x1, /Orange \/ White \(OGWH\)/);
   assert.match(x1, /Green \/ White \(GNWH\)/);
   assert.match(
     x1,
-    /<td class="pinout-color"><span class="wire-color-value"><span class="wire-color-swatch"[^>]*><\/span><span>Orange \/ White \(OGWH\)<\/span><\/span><\/td>/,
+    /<td class="[^"]*report-prefer-nowrap[^"]*pinout-color"><span class="wire-color-value"><span class="wire-color-swatch"[^>]*><\/span><span>Orange \/ White \(OGWH\)<\/span><\/span><\/td>/,
   );
-  assert.match(html, /\.pinout-table \.pinout-pin\{width:7%\}/);
-  assert.match(html, /\.pinout-table \.pinout-label\{width:15%\}/);
-  assert.match(html, /\.pinout-table \.pinout-color\{width:28%\}/);
-  assert.match(
-    html,
-    /\.pinout-table \.wire-color-value\{min-width:0;max-width:100%;white-space:nowrap\}/,
-  );
-  assert.match(
-    html,
-    /@media\(max-width:700px\)[\s\S]*\.pinout-table \.wire-color-value\{white-space:normal\}\}/,
-  );
+  assert.match(html, /\.report-table\{table-layout:auto\}/);
+  assert.match(html, /\.report-col-compact\{width:1%\}/);
+  assert.match(html, /\.report-col-flex\{width:auto\}/);
+  assert.match(html, /\.wire-color-value\{[^}]*white-space:nowrap\}/);
+  assert.doesNotMatch(html, /\.pinout-table[^}]*width:\d+%/);
   const terminations = html.match(
     /<section class="report-section" id="terminations">([\s\S]*?)<\/section>/,
   )?.[1];
@@ -515,7 +509,7 @@ test("Twisted Pairs restores member colors while bundle detail keeps local conte
     "Pitch",
     "Direction",
   ]) {
-    assert.match(pairs, new RegExp(`<th>${heading}<\\/th>`));
+    assert.match(pairs, new RegExp(`<th[^>]*>${heading}<\\/th>`));
   }
   assert.match(pairs, /Blue \/ White \(BUWH\)/);
   assert.match(pairs, /White \/ Blue \(WHBU\)/);
@@ -524,10 +518,75 @@ test("Twisted Pairs restores member colors while bundle detail keeps local conte
   const conductors = html.match(
     /<article class="cable-components bundle-conductors">([\s\S]*?)<\/article>/,
   )?.[1];
-  assert.match(conductors, /<th>Color<\/th>/);
-  assert.match(conductors, /<th>Twisted pair<\/th>/);
+  assert.match(conductors, /<th class="[^"]*bundle-conductor-color">Color<\/th>/);
+  assert.match(
+    conductors,
+    /<th class="[^"]*bundle-conductor-pair">Twisted pair<\/th>/,
+  );
   assert.match(conductors, /Blue \/ White \(BUWH\)/);
   assert.match(conductors, /TP1 \/ B1:DATA-/);
+});
+
+test("Bundle Conductors keeps common bicolor swatches and text together", () => {
+  const project = model.createEmptyProject("Bundle color layout");
+  const bundle = component("bundle", "bundle-1", "B1");
+  bundle.wireCount = 6;
+  bundle.conductorIds = Array.from(
+    { length: 6 },
+    (_, index) => `bundle-1-conductor-${index + 1}`,
+  );
+  bundle.wireLabels = ["A", "B", "C", "D", "E", "F"];
+  bundle.colors = ["RD", "BU", "GNYE", "OGWH", "BUWH", "BNWH"];
+  bundle.gauge = "12 AWG";
+  bundle.length = "50 cm";
+  project.components = [bundle];
+  project.twistedPairs = [
+    {
+      id: "pair-1",
+      designator: "TP1",
+      members: [
+        {
+          kind: "bundle-conductor",
+          bundleId: bundle.id,
+          conductorId: bundle.conductorIds[0],
+        },
+        {
+          kind: "bundle-conductor",
+          bundleId: bundle.id,
+          conductorId: bundle.conductorIds[1],
+        },
+      ],
+      twistDirection: "unspecified",
+    },
+  ];
+
+  const html = report.renderHarnessReportHtml(
+    report.buildHarnessReportModel(project, SAFE_SVG),
+  );
+  const conductors = html.match(
+    /<article class="cable-components bundle-conductors">([\s\S]*?)<\/article>/,
+  )?.[1];
+  assert.ok(conductors);
+  assert.match(conductors, /<table class="report-table bundle-conductor-table">/);
+  for (const color of [
+    "Red \\(RD\\)",
+    "Blue \\(BU\\)",
+    "Green / Yellow \\(GNYE\\)",
+    "Orange / White \\(OGWH\\)",
+    "Blue / White \\(BUWH\\)",
+    "Brown / White \\(BNWH\\)",
+  ]) {
+    assert.match(
+      conductors,
+      new RegExp(
+        `<td class="[^"]*report-prefer-nowrap[^"]*bundle-conductor-color"><span class="wire-color-value"><span class="wire-color-swatch"[^>]*><\\/span><span>${color}<\\/span><\\/span><\\/td>`,
+      ),
+    );
+  }
+  assert.match(html, /\.report-table\{table-layout:auto\}/);
+  assert.match(html, /\.report-nowrap\{white-space:nowrap/);
+  assert.doesNotMatch(html, /\.bundle-conductor-table[^}]*width:\d+%/);
+  assert.match(conductors, /<th class="[^"]*bundle-conductor-pair">Twisted pair<\/th>/);
 });
 
 test("report-only BOM designator compression is safe and leaves CSV raw", () => {

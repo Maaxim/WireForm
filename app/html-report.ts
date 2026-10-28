@@ -53,6 +53,14 @@ import {
   buildConnectionMappingRows,
   type ReportConnectionMappingRow,
 } from "./connection-mapping.ts";
+import {
+  colorColumn,
+  compactColumn,
+  contentColumn,
+  flexColumn,
+  reportColumnClassNames,
+  type ReportColumnLayout,
+} from "./report-table-layout.ts";
 import { getEffectiveBundleConductorLength } from "./bundle-conductors.ts";
 
 export interface ReportProjectMetadata {
@@ -908,6 +916,7 @@ interface TableColumn<Row> {
   optional?: boolean;
   numeric?: boolean;
   className?: string;
+  layout: ReportColumnLayout;
 }
 
 export function renderWireColorHtml(code: string) {
@@ -930,12 +939,16 @@ function renderTable<Row>(
       !column.optional || rows.some((row, index) => column.value(row, index) !== ""),
   );
   if (!rows.length) return `<p class="empty">${escapeHtml(emptyMessage)}</p>`;
-  return `<div class="table-wrap"><table${
-    tableClassName ? ` class="${escapeHtml(tableClassName)}"` : ""
-  }><thead><tr>${visible
+  return `<div class="table-wrap"><table class="${escapeHtml(
+    ["report-table", tableClassName].filter(Boolean).join(" "),
+  )}"><thead><tr>${visible
     .map(
       (column) => {
-        const className = [column.numeric ? "number" : "", column.className]
+        const className = [
+          column.numeric ? "number" : "",
+          ...reportColumnClassNames(column.layout),
+          column.className,
+        ]
           .filter(Boolean)
           .join(" ");
         return `<th${className ? ` class="${escapeHtml(className)}"` : ""}>${escapeHtml(column.heading)}</th>`;
@@ -947,7 +960,11 @@ function renderTable<Row>(
         `<tr>${visible
           .map((column) => {
             const value = column.value(row, index);
-            const className = [column.numeric ? "number" : "", column.className]
+            const className = [
+              column.numeric ? "number" : "",
+              ...reportColumnClassNames(column.layout),
+              column.className,
+            ]
               .filter(Boolean)
               .join(" ");
             return `<td${className ? ` class="${escapeHtml(className)}"` : ""}>${
@@ -975,9 +992,20 @@ function approvedAlternativesTable(
       heading: "Manufacturer",
       value: (row) => row.manufacturer ?? "",
       optional: true,
+      layout: contentColumn(),
     },
-    { heading: "MPN", value: (row) => row.mpn ?? "", optional: true },
-    { heading: "Note", value: (row) => row.note ?? "", optional: true },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn ?? "",
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Note",
+      value: (row) => row.note ?? "",
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   return `<h4>Approved Alternatives</h4>${renderTable(
     alternatives,
@@ -988,18 +1016,25 @@ function approvedAlternativesTable(
 
 function connectorSection(connector: ReportConnector, index: number) {
   const pinColumns: Array<TableColumn<ReportPin>> = [
-    { heading: "Pin", value: (row) => row.pin, className: "pinout-pin" },
+    {
+      heading: "Pin",
+      value: (row) => row.pin,
+      className: "pinout-pin",
+      layout: compactColumn(),
+    },
     {
       heading: "Label",
       value: (row) => row.label,
       optional: true,
       className: "pinout-label",
+      layout: contentColumn(),
     },
     {
       heading: "Wire / Conductor",
       value: (row) => row.wireConductor,
       optional: true,
       className: "pinout-wire",
+      layout: flexColumn(),
     },
     {
       heading: "Color",
@@ -1007,6 +1042,7 @@ function connectorSection(connector: ReportConnector, index: number) {
       render: (row) => renderWireColorHtml(row.color),
       optional: true,
       className: "pinout-color",
+      layout: colorColumn(),
     },
   ];
   const image = connector.photo
@@ -1023,19 +1059,49 @@ function connectorSection(connector: ReportConnector, index: number) {
   const additionalComponentColumns: Array<
     TableColumn<ReportConnectorAdditionalComponent>
   > = [
-    { heading: "Type", value: (row) => row.type },
-    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-    { heading: "MPN", value: (row) => row.mpn, optional: true },
-    { heading: "Description", value: (row) => row.description, optional: true },
-    { heading: "Base qty", value: (row) => row.baseQuantity, numeric: true },
-    { heading: "Rule", value: (row) => row.quantityMode },
+    { heading: "Type", value: (row) => row.type, layout: contentColumn() },
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Description",
+      value: (row) => row.description,
+      optional: true,
+      layout: flexColumn({ flexWeight: 2 }),
+    },
+    {
+      heading: "Base qty",
+      value: (row) => row.baseQuantity,
+      numeric: true,
+      layout: compactColumn(),
+    },
+    {
+      heading: "Rule",
+      value: (row) => row.quantityMode,
+      layout: contentColumn(),
+    },
     {
       heading: "Calculated",
       value: (row) => row.calculatedQuantity,
       numeric: true,
+      layout: compactColumn(),
     },
-    { heading: "Unit", value: (row) => row.unit },
-    { heading: "Notes", value: (row) => row.notes, optional: true },
+    { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
+    {
+      heading: "Notes",
+      value: (row) => row.notes,
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   const additionalComponents = connector.additionalComponents.length
     ? `<h4>Additional Components</h4>${renderTable(
@@ -1048,8 +1114,17 @@ function connectorSection(connector: ReportConnector, index: number) {
     ? `<h4>Shield Terminations</h4>${renderTable(
         connector.shieldTerminations,
         [
-          { heading: "Label", value: (row) => row.label },
-          { heading: "Connected to", value: (row) => row.connectedTo, optional: true },
+          {
+            heading: "Label",
+            value: (row) => row.label,
+            layout: contentColumn(),
+          },
+          {
+            heading: "Connected to",
+            value: (row) => row.connectedTo,
+            optional: true,
+            layout: flexColumn(),
+          },
         ],
         "",
       )}`
@@ -1076,15 +1151,35 @@ ${additionalComponents}
 function compactConnectorsSection(connectors: readonly ReportConnector[]) {
   if (!connectors.length) return "";
   const columns: Array<TableColumn<ReportConnector>> = [
-    { heading: "Designator", value: (row) => row.designator },
-    { heading: "Type", value: (row) => row.kind },
-    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-    { heading: "MPN", value: (row) => row.mpn, optional: true },
-    { heading: "Description", value: (row) => row.name, optional: true },
+    {
+      heading: "Designator",
+      value: (row) => row.designator,
+      layout: contentColumn(),
+    },
+    { heading: "Type", value: (row) => row.kind, layout: contentColumn() },
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Description",
+      value: (row) => row.name,
+      optional: true,
+      layout: flexColumn(),
+    },
     {
       heading: "Pin label",
       value: (row) => row.pins[0]?.label ?? "",
       optional: true,
+      layout: contentColumn(),
     },
   ];
   return `<article class="connector-card compact-connectors"><h3>Simple One-Pin Connectors</h3>${renderTable(
@@ -1177,17 +1272,38 @@ function cableAdditionalComponentsSection(
 ) {
   if (!cable.additionalComponents.length) return "";
   const columns: Array<TableColumn<ReportCableAdditionalComponent>> = [
-    { heading: "Type", value: (row) => row.type },
-    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-    { heading: "MPN", value: (row) => row.mpn, optional: true },
-    { heading: "Description", value: (row) => row.description, optional: true },
+    { heading: "Type", value: (row) => row.type, layout: contentColumn() },
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Description",
+      value: (row) => row.description,
+      optional: true,
+      layout: flexColumn({ flexWeight: 2 }),
+    },
     {
       heading: "Qty",
       value: (row) => row.calculatedQuantity,
       numeric: true,
+      layout: compactColumn(),
     },
-    { heading: "Unit", value: (row) => row.unit },
-    { heading: "Placement", value: (row) => row.placement, optional: true },
+    { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
+    {
+      heading: "Placement",
+      value: (row) => row.placement,
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   return `<article class="cable-components cable-additional-components"><h3>${escapeHtml(
     cable.designator,
@@ -1209,9 +1325,20 @@ function cableApprovedAlternativesSection(cable: ReportCable) {
         heading: "Manufacturer",
         value: (row) => row.manufacturer ?? "",
         optional: true,
+        layout: contentColumn(),
       },
-      { heading: "MPN", value: (row) => row.mpn ?? "", optional: true },
-      { heading: "Note", value: (row) => row.note ?? "", optional: true },
+      {
+        heading: "MPN",
+        value: (row) => row.mpn ?? "",
+        optional: true,
+        layout: contentColumn(),
+      },
+      {
+        heading: "Note",
+        value: (row) => row.note ?? "",
+        optional: true,
+        layout: flexColumn(),
+      },
     ],
     "",
   )}</article>`;
@@ -1224,38 +1351,78 @@ function cableConductorsSection(cable: ReportCable) {
   )} <span>Bundle Conductors</span></h3>${renderTable(
     cable.conductors,
     [
-      { heading: "Conductor", value: (row) => row.number, numeric: true },
-      { heading: "Label", value: (row) => row.label, optional: true },
+      {
+        heading: "Conductor",
+        value: (row) => row.number,
+        numeric: true,
+        className: "bundle-conductor-number",
+        layout: compactColumn(),
+      },
+      {
+        heading: "Label",
+        value: (row) => row.label,
+        optional: true,
+        className: "bundle-conductor-label",
+        layout: contentColumn(),
+      },
       {
         heading: "Color",
         value: (row) => row.color,
         render: (row) => renderWireColorHtml(row.color),
         optional: true,
+        className: "bundle-conductor-color",
+        layout: colorColumn(),
       },
-      { heading: "Wire size", value: (row) => row.gauge, optional: true },
-      { heading: "Length", value: (row) => row.length },
-      { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
+      {
+        heading: "Wire size",
+        value: (row) => row.gauge,
+        optional: true,
+        className: "bundle-conductor-size",
+        layout: compactColumn(),
+      },
+      {
+        heading: "Length",
+        value: (row) => row.length,
+        className: "bundle-conductor-length",
+        layout: compactColumn(),
+      },
+      {
+        heading: "Twisted pair",
+        value: (row) => row.twistedPair,
+        optional: true,
+        className: "bundle-conductor-pair",
+        layout: contentColumn(),
+      },
     ],
     "",
+    "bundle-conductor-table",
   )}</article>`;
 }
 
 const REPORT_CSS = `
 :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;color:#17212b;background:#fff;font-size:14px}
-*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;min-width:120px}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.pinout-table{table-layout:fixed}.pinout-table .pinout-pin{width:7%}.pinout-table .pinout-label{width:15%}.pinout-table .pinout-color{width:28%}.pinout-table .wire-color-value{min-width:0;max-width:100%;white-space:nowrap}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
+*{box-sizing:border-box}body{margin:0;background:#eef1f3}header,main{width:min(1500px,calc(100% - 32px));margin:0 auto}header{padding:32px 0 20px}main{padding-bottom:48px}h1{font-size:2rem;margin:0 0 8px;letter-spacing:-.02em}h2{font-size:1.45rem;margin:0 0 16px;border-bottom:2px solid #1f6f78;padding-bottom:8px}h3{font-size:1.15rem;margin:0 0 14px}h3 span{font-weight:400;color:#62717d;margin-left:8px}h4{margin:18px 0 8px}.subtitle{color:#52616d;margin:0}.report-section,.connector-card{background:#fff;border:1px solid #ccd4d9;border-radius:8px;padding:20px;margin:0 0 20px;box-shadow:0 1px 3px #14212b12}.toc{background:#f7f9fa;border:1px solid #d8dfe3;border-radius:6px;padding:12px 16px;margin-top:20px}.toc strong{margin-right:12px}.toc a{color:#125d67;margin-right:14px}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}.metadata.compact{margin:0;align-content:start}.metadata div{border-left:3px solid #86a8ad;padding-left:9px}.metadata dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#667783}.metadata dd{margin:2px 0 0;font-weight:600}.diagram{overflow:auto;text-align:center;background:#fff}.diagram svg{display:block;max-width:100%;height:auto;margin:0 auto}.connector-overview{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:20px;align-items:start}figure{margin:0}figure img{display:block;max-width:260px;max-height:180px;width:auto;height:auto;border:1px solid #d6dde1;border-radius:5px}figcaption{font-size:.75rem;color:#6c7880;margin-top:4px;max-width:260px}.cable-components{margin-top:18px;padding-top:16px;border-top:1px solid #dce3e6}.cable-components h3{margin-bottom:8px}.table-wrap{overflow-x:auto;max-width:100%}table{width:100%;border-collapse:collapse;font-size:.86rem}.report-table{table-layout:auto}.report-col-compact{width:1%}.report-col-content{width:1%}.report-col-flex{width:auto}.report-nowrap{white-space:nowrap;overflow-wrap:normal}.report-prefer-nowrap{white-space:nowrap;overflow-wrap:normal}.report-col-flex{overflow-wrap:anywhere}th,td{border:1px solid #d5dce0;padding:7px 8px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#e9eff1;color:#253640;font-size:.76rem;text-transform:uppercase;letter-spacing:.035em}th.report-nowrap,td.report-nowrap,th.report-prefer-nowrap,td.report-prefer-nowrap{white-space:nowrap;overflow-wrap:normal}tbody tr:nth-child(even){background:#f8fafb}.number{text-align:right;font-variant-numeric:tabular-nums}.muted,.empty{color:#74818a}.notes,.harness-notes{white-space:pre-wrap;background:#f7f9fa;border-left:3px solid #89aeb3;padding:9px 11px}.harness-notes{margin:0;line-height:1.55}.wire-color-value{display:inline-flex;align-items:center;gap:6px;max-width:100%;white-space:nowrap}.wire-color-swatch{display:inline-block;flex:0 0 auto;width:38px;height:12px;border:1px solid #66777e;border-radius:3px;box-shadow:0 0 0 1px #ffffffbf inset}.report-footer{font-size:.78rem;color:#64737d;text-align:center;margin-top:28px}
 .mapping-note{margin:-6px 0 12px;color:#64737d;font-size:.82rem}.connection-conductor{display:inline-flex;align-items:center;gap:6px}.connection-conductor .wire-color-swatch{width:28px}.harness-images{padding-bottom:8px}.harness-image{margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #dce3e6;text-align:center}.harness-image:last-child{border-bottom:0;margin-bottom:0}.harness-image h3{text-align:left}.harness-image img{display:block;width:auto;height:auto;max-width:100%;max-height:760px;object-fit:contain;margin:0 auto;border:1px solid #ccd4d9;border-radius:5px}.harness-image figcaption{max-width:none;margin:10px auto 0;text-align:left;white-space:pre-wrap;font-size:.9rem;color:#455661}
 @page{size:auto;margin:12mm}
 @media print{:root{font-size:10pt}body{background:#fff}header,main{width:100%}header{padding-top:0}.toc{display:none}.report-section,.connector-card{box-shadow:none;border-color:#aeb9bf;border-radius:0;padding:12px;margin-bottom:12px;break-inside:auto}h1,h2,h3,h4{break-after:avoid}.connector-overview,figure,.metadata,.notes{break-inside:avoid}thead{display:table-header-group}tr{break-inside:avoid}table{font-size:8pt}th,td{padding:4px 5px}.diagram{overflow:visible;break-inside:avoid}.diagram svg{max-width:100%;max-height:175mm}figure img{max-width:55mm;max-height:40mm}.connector-card{break-before:auto}.connector-card+ .connector-card{break-before:page}.report-footer{display:none}}
 @media print{.harness-images{break-before:page}.harness-image{break-inside:avoid}.harness-image img{max-width:100%;max-height:220mm}}
-@media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}.pinout-table .wire-color-value{white-space:normal}}
+@media(max-width:700px){header,main{width:min(100% - 16px,1500px)}.connector-overview{grid-template-columns:1fr}figure img{max-width:100%}.report-prefer-nowrap,.report-prefer-nowrap .wire-color-value{white-space:normal;overflow-wrap:anywhere}}
 `;
 
 export function renderHarnessReportHtml(model: HarnessReportModel) {
   const connectionMappingColumns: Array<
     TableColumn<ReportConnectionMappingRow>
   > = [
-    { heading: "From Connector", value: (row) => row.from.connectorDesignator },
-    { heading: "From Pin", value: (row) => row.from.pinDisplay },
+    {
+      heading: "From Connector",
+      value: (row) => row.from.connectorDesignator,
+      layout: contentColumn(),
+    },
+    {
+      heading: "From Pin",
+      value: (row) => row.from.pinDisplay,
+      layout: contentColumn(),
+    },
     {
       heading: "Wire / Conductor",
       value: (row) => row.conductor.display,
@@ -1271,94 +1438,234 @@ export function renderHarnessReportHtml(model: HarnessReportModel) {
               )}" aria-hidden="true"></span>`
             : ""
         }</span>`,
+      layout: flexColumn({ flexWeight: 2 }),
     },
     {
       heading: "Twisted Pair",
       value: (row) => row.twistedPair?.designator ?? "",
+      layout: contentColumn(),
     },
-    { heading: "To Connector", value: (row) => row.to.connectorDesignator },
-    { heading: "To Pin", value: (row) => row.to.pinDisplay },
+    {
+      heading: "To Connector",
+      value: (row) => row.to.connectorDesignator,
+      layout: contentColumn(),
+    },
+    {
+      heading: "To Pin",
+      value: (row) => row.to.pinDisplay,
+      layout: contentColumn(),
+    },
   ];
   const cableColumns: Array<TableColumn<ReportCable>> = [
-    { heading: "Designator", value: (row) => row.designator },
-    { heading: "Type", value: (row) => row.kind },
-    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-    { heading: "MPN", value: (row) => row.mpn, optional: true },
-    { heading: "Description", value: (row) => row.description, optional: true },
-    { heading: "Length", value: (row) => row.length, optional: true },
-    { heading: "Conductors", value: (row) => row.conductorCount, numeric: true },
-    { heading: "Wire size", value: (row) => row.gauge, optional: true },
+    {
+      heading: "Designator",
+      value: (row) => row.designator,
+      layout: contentColumn(),
+    },
+    { heading: "Type", value: (row) => row.kind, layout: contentColumn() },
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Description",
+      value: (row) => row.description,
+      optional: true,
+      layout: flexColumn({ flexWeight: 2 }),
+    },
+    {
+      heading: "Length",
+      value: (row) => row.length,
+      optional: true,
+      layout: compactColumn(),
+    },
+    {
+      heading: "Conductors",
+      value: (row) => row.conductorCount,
+      numeric: true,
+      layout: compactColumn(),
+    },
+    {
+      heading: "Wire size",
+      value: (row) => row.gauge,
+      optional: true,
+      layout: compactColumn(),
+    },
     {
       heading: "Color",
       value: (row) => row.color,
       render: (row) => renderWireColorHtml(row.color),
       optional: true,
+      layout: colorColumn(),
     },
-    { heading: "Twisted pair", value: (row) => row.twistedPair, optional: true },
-    { heading: "Notes", value: (row) => row.notes, optional: true },
+    {
+      heading: "Twisted pair",
+      value: (row) => row.twistedPair,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Notes",
+      value: (row) => row.notes,
+      optional: true,
+      layout: flexColumn(),
+    },
     {
       heading: "Approved alternatives",
       value: (row) => formatApprovedAlternatives(row.approvedAlternatives),
       optional: true,
+      layout: flexColumn(),
     },
   ];
   const terminationColumns: Array<TableColumn<ReportTermination>> = [
-    { heading: "Connector", value: (row) => row.connector },
-    { heading: "Pin / cavity", value: (row) => row.pin },
-    { heading: "Pin label", value: (row) => row.pinLabel, optional: true },
-    { heading: "Wire / cable", value: (row) => row.cable },
-    { heading: "Conductor", value: (row) => row.conductor },
-    { heading: "Signal", value: (row) => row.signal, optional: true },
+    { heading: "Connector", value: (row) => row.connector, layout: contentColumn() },
+    { heading: "Pin / cavity", value: (row) => row.pin, layout: contentColumn() },
+    {
+      heading: "Pin label",
+      value: (row) => row.pinLabel,
+      optional: true,
+      layout: contentColumn(),
+    },
+    { heading: "Wire / cable", value: (row) => row.cable, layout: flexColumn() },
+    { heading: "Conductor", value: (row) => row.conductor, layout: compactColumn() },
+    {
+      heading: "Signal",
+      value: (row) => row.signal,
+      optional: true,
+      layout: contentColumn(),
+    },
     {
       heading: "Contact manufacturer",
       value: (row) => row.contactManufacturer,
       optional: true,
+      layout: contentColumn(),
     },
-    { heading: "Contact MPN", value: (row) => row.contactMpn, optional: true },
-    { heading: "Seal PN", value: (row) => row.sealPn, optional: true },
-    { heading: "Strip length", value: (row) => row.stripLength, optional: true },
-    { heading: "Tooling", value: (row) => row.tooling, optional: true },
-    { heading: "Notes", value: (row) => row.notes, optional: true },
+    {
+      heading: "Contact MPN",
+      value: (row) => row.contactMpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Seal PN",
+      value: (row) => row.sealPn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Strip length",
+      value: (row) => row.stripLength,
+      optional: true,
+      layout: compactColumn(),
+    },
+    {
+      heading: "Tooling",
+      value: (row) => row.tooling,
+      optional: true,
+      layout: flexColumn(),
+    },
+    {
+      heading: "Notes",
+      value: (row) => row.notes,
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   const twistedPairColumns: Array<TableColumn<ReportTwistedPair>> = [
-    { heading: "Pair", value: (row) => row.designator },
-    { heading: "Member A", value: (row) => row.wireA },
+    { heading: "Pair", value: (row) => row.designator, layout: compactColumn() },
+    { heading: "Member A", value: (row) => row.wireA, layout: contentColumn() },
     {
       heading: "Member A color",
       value: (row) => row.wireAColor,
       render: (row) => renderWireColorHtml(row.wireAColor),
       optional: true,
+      layout: colorColumn(),
     },
-    { heading: "Member B", value: (row) => row.wireB },
+    { heading: "Member B", value: (row) => row.wireB, layout: contentColumn() },
     {
       heading: "Member B color",
       value: (row) => row.wireBColor,
       render: (row) => renderWireColorHtml(row.wireBColor),
       optional: true,
+      layout: colorColumn(),
     },
-    { heading: "Pitch", value: (row) => row.pitch, optional: true },
-    { heading: "Direction", value: (row) => row.direction },
-    { heading: "Notes", value: (row) => row.notes, optional: true },
+    {
+      heading: "Pitch",
+      value: (row) => row.pitch,
+      optional: true,
+      layout: compactColumn(),
+    },
+    {
+      heading: "Direction",
+      value: (row) => row.direction,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Notes",
+      value: (row) => row.notes,
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   const bomColumns: Array<TableColumn<BomRow>> = [
-    { heading: "Item", value: (_row, index) => index + 1, numeric: true },
-    { heading: "Category", value: (row) => row.category },
-    { heading: "Manufacturer", value: (row) => row.manufacturer, optional: true },
-    { heading: "MPN", value: (row) => row.mpn, optional: true },
-    { heading: "Description", value: (row) => row.description, optional: true },
-    { heading: "Qty", value: (row) => formatBomQuantity(row.quantity), numeric: true },
-    { heading: "Unit", value: (row) => row.unit },
+    {
+      heading: "Item",
+      value: (_row, index) => index + 1,
+      numeric: true,
+      layout: compactColumn(),
+    },
+    { heading: "Category", value: (row) => row.category, layout: contentColumn() },
+    {
+      heading: "Manufacturer",
+      value: (row) => row.manufacturer,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "MPN",
+      value: (row) => row.mpn,
+      optional: true,
+      layout: contentColumn(),
+    },
+    {
+      heading: "Description",
+      value: (row) => row.description,
+      optional: true,
+      layout: flexColumn({ flexWeight: 2 }),
+    },
+    {
+      heading: "Qty",
+      value: (row) => formatBomQuantity(row.quantity),
+      numeric: true,
+      layout: compactColumn(),
+    },
+    { heading: "Unit", value: (row) => row.unit, layout: compactColumn() },
     {
       heading: "Designators",
       value: (row) => formatReportDesignators(row.designators),
       optional: true,
+      layout: flexColumn(),
     },
     {
       heading: "Approved alternatives",
       value: (row) => formatApprovedAlternatives(row.approvedAlternatives),
       optional: true,
+      layout: flexColumn(),
     },
-    { heading: "Notes", value: (row) => row.notes, optional: true },
+    {
+      heading: "Notes",
+      value: (row) => row.notes,
+      optional: true,
+      layout: flexColumn(),
+    },
   ];
   const harnessNotes = model.project.notes ?? "";
   const hasHarnessNotes = harnessNotes.trim().length > 0;

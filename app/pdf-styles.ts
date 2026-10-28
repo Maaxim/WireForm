@@ -10,6 +10,9 @@ export const PDF_COLORS = {
   note: "#F1F6F7",
 } as const;
 
+export const PDF_TABLE_HORIZONTAL_PADDING = 4;
+export const PDF_TABLE_LINE_WIDTH = 0.5;
+
 export const PDF_STYLES: StyleDictionary = {
   coverTitle: {
     fontSize: 28,
@@ -72,10 +75,10 @@ export const PDF_STYLES: StyleDictionary = {
 export const PDF_TABLE_LAYOUT: TableLayout = {
   hLineColor: () => PDF_COLORS.border,
   vLineColor: () => PDF_COLORS.border,
-  hLineWidth: () => 0.5,
-  vLineWidth: () => 0.5,
-  paddingLeft: () => 4,
-  paddingRight: () => 4,
+  hLineWidth: () => PDF_TABLE_LINE_WIDTH,
+  vLineWidth: () => PDF_TABLE_LINE_WIDTH,
+  paddingLeft: () => PDF_TABLE_HORIZONTAL_PADDING,
+  paddingRight: () => PDF_TABLE_HORIZONTAL_PADDING,
   paddingTop: () => 3,
   paddingBottom: () => 3,
   fillColor: (rowIndex) =>
