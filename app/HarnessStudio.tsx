@@ -58,7 +58,8 @@ import {
   serializeBomCsv,
 } from "./bom";
 import {
-  ONSHAPE_CSV_PROFILE,
+  ONSHAPE_CSV_COLUMNS,
+  ONSHAPE_CSV_TARGET,
   buildOnshapeCableWireExport,
   onshapeCsvFilenameForTitle,
   onshapeExportHasErrors,
@@ -5116,10 +5117,17 @@ export function HarnessStudio() {
             </div>
             <div className="modal-body onshape-export-body">
               <p>
-                Profile: <strong>{ONSHAPE_CSV_PROFILE.name}</strong>. Import the
+                Target: <strong>{ONSHAPE_CSV_TARGET.name}</strong>. Import the
                 downloaded CSV as a document tab in Onshape, then select that
                 tab in the Cable/Wire Routing feature. Live import compatibility
                 was not verified in this environment.
+              </p>
+              <p>
+                The CSV includes all 13 columns, with connector part numbers,
+                per-end contact MPNs, and strip lengths in millimeters where
+                assigned. Select the columns you need in Onshape. The preview
+                shows the seven routing fields; the download also contains the
+                six manufacturing fields.
               </p>
 
               <section className="onshape-kind-summary" aria-label="Conductor counts">
@@ -5177,25 +5185,17 @@ export function HarnessStudio() {
                     <table>
                       <thead>
                         <tr>
-                          <th>Wire ID</th>
-                          <th>From Ref</th>
-                          <th>To Ref</th>
-                          <th>From Pin</th>
-                          <th>To Pin</th>
-                          <th>Gauge</th>
-                          <th>Color</th>
+                          {ONSHAPE_CSV_COLUMNS.slice(0, 7).map((column) => (
+                            <th key={column.key}>{column.heading}</th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
                         {onshapeExport.rows.slice(0, 25).map((row) => (
                           <tr key={row.wireId}>
-                            <td>{row.wireId}</td>
-                            <td>{row.fromRef}</td>
-                            <td>{row.toRef}</td>
-                            <td>{row.fromPin}</td>
-                            <td>{row.toPin}</td>
-                            <td>{row.gauge}</td>
-                            <td>{row.color}</td>
+                            {ONSHAPE_CSV_COLUMNS.slice(0, 7).map((column) => (
+                              <td key={column.key}>{row[column.key]}</td>
+                            ))}
                           </tr>
                         ))}
                       </tbody>
@@ -5219,7 +5219,7 @@ export function HarnessStudio() {
                     />
                     <span>
                       I understand the listed compatibility warnings and any
-                      omitted shield data in this conductor-only CSV.
+                      omitted data in this conductor-only CSV.
                     </span>
                   </label>
                 )}

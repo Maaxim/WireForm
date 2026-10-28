@@ -7,7 +7,8 @@ import {
   buildConnectionMappingRows,
 } from "../app/connection-mapping.ts";
 import {
-  ONSHAPE_CSV_PROFILE,
+  ONSHAPE_CSV_HEADERS,
+  ONSHAPE_CSV_TARGET,
   buildOnshapeCableWireExport,
   convertColorForOnshape,
   convertGaugeForOnshape,
@@ -21,6 +22,56 @@ import {
   createEmptyProject,
   makeComponent,
 } from "../app/model.ts";
+import { parseLengthMeters, parseLengthMillimeters } from "../app/length.ts";
+import { resolvePhysicalConnections } from "../app/connection-topology.ts";
+
+const EXPECTED_HEADERS = [
+  "Wire ID", "From Ref", "From Pin", "To Ref", "To Pin", "Gauge", "Color",
+  "From Part No", "To Part No", "From Contact PN", "To Contact PN",
+  "From Strip Length (mm)", "To Strip Length (mm)",
+];
+const EMPTY_MANUFACTURING_FIELDS = {
+  fromPartNo: "",
+  toPartNo: "",
+  fromContactPn: "",
+  toContactPn: "",
+  fromStripLengthMm: "",
+  toStripLengthMm: "",
+};
+
+/** Parse quoted records independently of the exporter's escaping implementation. */
+function parseCsv(csv) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index];
+    if (character === '"') {
+      if (quoted && csv[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && character === ",") {
+      row.push(value);
+      value = "";
+    } else if (!quoted && character === "\r" && csv[index + 1] === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+      index += 1;
+    } else {
+      value += character;
+    }
+  }
+  assert.equal(quoted, false, "CSV must not contain unterminated quotes");
+  assert.equal(value, "");
+  assert.equal(row.length, 0);
+  return rows;
+}
 
 function addConnector(project, designator, pinCount, id = `connector-${designator}`) {
   const connector = makeComponent("connector", project.components.length + 1, id);
@@ -98,6 +149,7 @@ test("standalone wire exports exactly once with physical pins, not pin labels", 
     toPin: "1",
     gauge: "24",
     color: "red",
+    ...EMPTY_MANUFACTURING_FIELDS,
   });
   assert.equal(result.totals.byKind.wire.exported, 1);
   assert.equal(onshapeExportHasErrors(result), false);
@@ -142,6 +194,166 @@ test("endpoint orientation exactly matches Connection Mapping normalization", ()
   assert.equal(exported.toRef, mapping.to.connectorDesignator);
   assert.equal(exported.toPin, String(mapping.to.physicalPin));
   assert.equal(exported.wireId, onshapeWireId(cable.id, cable.conductorIds[0]));
+});
+
+for (const kind of ["wire", "bundle", "cable"]) {
+  test(`${kind} exports connector and per-end contact MPNs and millimeter strips`, () => {
+    const count = kind === "wire" ? 1 : 2;
+    const { project, j1, j2, cable } = completeProject(kind, count);
+    j1.mpn = "09 32 040 3001";
+    j2.mpn = "10142708-040021LF";
+    cable.gauge = "14 AWG";
+    for (let index = 0; index < count; index += 1) {
+      project.links[index * 2].termination = {
+        contact: { mpn: index ? "CAVITY-2" : "09 33 000 6102" },
+        stripLength: index ? "8.25 mm" : "7.5 mm",
+      };
+      project.links[index * 2 + 1].termination = {
+        contact: { mpn: index ? "OTHER-CAVITY-2" : "10158070-121LF" },
+        stripLength: index ? "6.125 mm" : "5.7 mm",
+      };
+    }
+    const before = JSON.stringify(project);
+    const result = buildOnshapeCableWireExport(project);
+    assert.equal(result.rows.length, count);
+    assert.equal(onshapeExportHasErrors(result), false);
+    for (let index = 0; index < count; index += 1) {
+      const row = result.rows[index];
+      assert.equal(row.wireId, onshapeWireId(cable.id, cable.conductorIds[index]));
+      assert.equal(row.fromPartNo, j1.mpn);
+      assert.equal(row.toPartNo, j2.mpn);
+      assert.equal(row.fromContactPn, index ? "CAVITY-2" : "09 33 000 6102");
+      assert.equal(row.toContactPn, index ? "OTHER-CAVITY-2" : "10158070-121LF");
+      assert.equal(row.fromStripLengthMm, index ? "8.25" : "7.5");
+      assert.equal(row.toStripLengthMm, index ? "6.125" : "5.7");
+    }
+    const csv = serializeOnshapeCableWireCsv(result.rows);
+    const records = parseCsv(csv);
+    assert.deepEqual(records[0], EXPECTED_HEADERS);
+    assert.ok(records.every((record) => record.length === 13));
+    assert.deepEqual(records[1].slice(7), [
+      j1.mpn, j2.mpn, "09 33 000 6102", "10158070-121LF", "7.5", "5.7",
+    ]);
+    assert.equal(csv, serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows));
+    assert.equal(JSON.stringify(project), before);
+  });
+}
+
+test("reversed endpoint ordering retains each physical pin's own contact and strip length", () => {
+  const { project, j1, j2, cable } = completeProject("wire", 1);
+  // Deliberately store J5:10 before J1:3, with distinct parts at each end.
+  j1.designator = "J5";
+  j1.pinCount = 10;
+  j1.mpn = "CONNECTOR-A";
+  j2.designator = "J1";
+  j2.pinCount = 3;
+  j2.mpn = "CONNECTOR-B";
+  project.links[0].from.portId = "pin:10";
+  project.links[0].termination = { contact: { mpn: "PN-A" }, stripLength: "5.7 mm" };
+  project.links[1].to.portId = "pin:3";
+  project.links[1].termination = { contact: { mpn: "PN-B" }, stripLength: "7.5 mm" };
+
+  const resolved = resolvePhysicalConnections(project)[0];
+  assert.equal(resolved.from.connectorId, j2.id);
+  assert.equal(resolved.from.termination.contact.mpn, "PN-B");
+  assert.equal(resolved.to.connectorId, j1.id);
+  assert.equal(resolved.to.termination.contact.mpn, "PN-A");
+  const originalCsv = serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows);
+  const record = parseCsv(originalCsv)[1];
+  assert.deepEqual(record.slice(0, 5), [
+    onshapeWireId(cable.id, cable.conductorIds[0]), "J1", "3", "J5", "10",
+  ]);
+  assert.deepEqual(record.slice(7), [
+    "CONNECTOR-B", "CONNECTOR-A", "PN-B", "PN-A", "7.5", "5.7",
+  ]);
+
+  project.links.reverse();
+  project.components.reverse();
+  for (const entry of project.links) [entry.from, entry.to] = [entry.to, entry.from];
+  assert.equal(
+    serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows),
+    originalCsv,
+  );
+});
+
+test("missing manufacturing data stays empty without inferring alternatives or generic hardware", () => {
+  const { project, j1, j2 } = completeProject("bundle", 2);
+  j1.manufacturer = "Not a connector MPN";
+  j2.mpn = "   ";
+  j2.name = "Not a connector MPN either";
+  j1.approvedAlternatives = [{ id: "alt", mpn: "ALTERNATIVE-PN" }];
+  j1.additionalComponents = [{ id: "extra", mpn: "GENERIC-CONTACT-PN" }];
+  project.links[0].termination = {
+    contact: { manufacturer: "Not a contact MPN", pn: "GENERIC-PN" },
+    seal: { mpn: "SEAL-PN" },
+  };
+  project.links[2].termination = {
+    contact: { mpn: "OTHER-CAVITY-CONTACT" }, stripLength: "7.5 mm",
+  };
+  const result = buildOnshapeCableWireExport(project);
+  assert.equal(onshapeExportHasErrors(result), false);
+  const records = parseCsv(serializeOnshapeCableWireCsv(result.rows));
+  assert.deepEqual(records[1].slice(7), ["", "", "", "", "", ""]);
+  assert.deepEqual(records[2].slice(7), ["", "", "OTHER-CAVITY-CONTACT", "", "7.5", ""]);
+});
+
+test("one-sided manufacturing metadata never fills the other physical endpoint", () => {
+  const { project, j1 } = completeProject("wire", 1);
+  j1.mpn = "FROM-CONNECTOR";
+  project.links[0].termination = { contact: { mpn: "FROM-CONTACT" }, stripLength: "7.5 mm" };
+  const result = buildOnshapeCableWireExport(project);
+  assert.equal(onshapeExportHasErrors(result), false);
+  const record = parseCsv(serializeOnshapeCableWireCsv(result.rows))[1];
+  assert.deepEqual(record.slice(7), ["FROM-CONNECTOR", "", "FROM-CONTACT", "", "7.5", ""]);
+});
+
+test("strip units convert exactly to millimeters without rounding meaningful decimals", () => {
+  for (const [input, expected] of [
+    ["7.5 mm", "7.5"], ["5,7 mm", "5.7"], ["0.75 cm", "7.5"],
+    ["0.0057 m", "5.7"], ['0.3"', "7.62"], ["0.1 inches", "2.54"],
+    ["7.1234567890123456789 mm", "7.1234567890123456789"],
+    ["0.0000001 mm", "0.0000001"], ["007.500 mm", "7.5"],
+  ]) {
+    const { project } = completeProject("wire", 1);
+    project.links[0].termination = { stripLength: input };
+    const result = buildOnshapeCableWireExport(project);
+    assert.equal(result.rows[0].fromStripLengthMm, expected, input);
+    assert.equal(result.rows[0].toStripLengthMm, "");
+    assert.equal(onshapeExportHasErrors(result), false);
+    assert.equal(parseLengthMillimeters(input), expected);
+  }
+  // Existing meter-based callers keep their previous rounding behavior.
+  assert.equal(parseLengthMeters("7.123456789 mm"), 0.007123457);
+});
+
+test("malformed optional strip lengths warn and leave blanks without blocking routing", () => {
+  for (const stripLength of ["7.5", "invalid", "0 mm", "-5 mm", "Infinity mm"]) {
+    const { project } = completeProject("wire", 1);
+    project.links[0].termination = { stripLength };
+    const result = buildOnshapeCableWireExport(project);
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].fromStripLengthMm, "");
+    assert.equal(onshapeExportHasErrors(result), false);
+    assert.ok(issueCodes(result).has("INVALID_STRIP_LENGTH"));
+  }
+});
+
+test("all thirteen fields retain alignment and quoting for manufacturing part numbers", () => {
+  assert.deepEqual(ONSHAPE_CSV_HEADERS, EXPECTED_HEADERS);
+  assert.deepEqual(parseCsv(serializeOnshapeCableWireCsv([])), [EXPECTED_HEADERS]);
+  const { project, j1, j2 } = completeProject("wire", 1);
+  j1.mpn = ' 09 32,040 "3001" ';
+  j2.mpn = "10142708-040021LF\nÜ";
+  project.links[0].termination = { contact: { mpn: ' 09 33 "000", 6102 ' }, stripLength: "7.500 mm" };
+  project.links[1].termination = { contact: { mpn: "10158070-121LF\n端" }, stripLength: "5.7 mm" };
+  const result = buildOnshapeCableWireExport(project);
+  const records = parseCsv(serializeOnshapeCableWireCsv(result.rows));
+  assert.equal(records[0].length, 13);
+  assert.equal(records[1].length, 13);
+  assert.deepEqual(records[1].slice(7), [
+    j1.mpn, j2.mpn, project.links[0].termination.contact.mpn,
+    project.links[1].termination.contact.mpn, "7.5", "5.7",
+  ]);
 });
 
 test("duplicate persistent conductor identities are detected and cannot export", () => {
@@ -247,11 +459,12 @@ test("twisted-pair members remain separate rows and add no invented CSV columns"
   assert.deepEqual(Object.keys(result.rows[0]), [
     "wireId",
     "fromRef",
-    "toRef",
     "fromPin",
+    "toRef",
     "toPin",
     "gauge",
     "color",
+    ...Object.keys(EMPTY_MANUFACTURING_FIELDS),
   ]);
 });
 
@@ -271,8 +484,8 @@ const COLOR_CASES = [
 ];
 
 test("solid and ordered bicolor codes export lowercase English names", () => {
-  assert.equal(ONSHAPE_CSV_PROFILE.bicolorEncodingVerified, true);
-  assert.equal(ONSHAPE_CSV_PROFILE.liveImportVerified, false);
+  assert.equal(ONSHAPE_CSV_TARGET.bicolorEncodingVerified, true);
+  assert.equal(ONSHAPE_CSV_TARGET.liveImportVerified, false);
   for (const [code, name] of COLOR_CASES) {
     assert.deepEqual(convertColorForOnshape(code), { value: name });
   }
@@ -313,8 +526,8 @@ for (const kind of ["wire", "bundle", "cable"]) {
       const csv = serializeOnshapeCableWireCsv(result.rows);
       assert.equal(
         csv,
-        "Wire ID,From Ref,To Ref,From Pin,To Pin,Gauge,Color\r\n" +
-          `${result.rows[0].wireId},"J1,""Ü""","J2\n端",1,1,24,${expected}\r\n`,
+        EXPECTED_HEADERS.join(",") + "\r\n" +
+          `${result.rows[0].wireId},"J1,""Ü""",1,"J2\n端",1,24,${expected},,,,,,\r\n`,
       );
       assert.equal(
         serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows),
@@ -360,13 +573,14 @@ test("CSV serialization is RFC4180, UTF-8 compatible, CRLF terminated and determ
       toPin: "10",
       gauge: "24",
       color: "Blue",
+      ...EMPTY_MANUFACTURING_FIELDS,
     },
   ];
   const first = serializeOnshapeCableWireCsv(rows);
   const second = serializeOnshapeCableWireCsv(rows);
   assert.equal(first, second);
   assert.equal(first.endsWith("\r\n"), true);
-  assert.match(first, /^Wire ID,From Ref,To Ref,From Pin,To Pin,Gauge,Color\r\n/);
+  assert.equal(first.split("\r\n")[0], EXPECTED_HEADERS.join(","));
   assert.match(first, /"wire,""one"""/);
   assert.match(first, /"J,1"/);
   assert.match(first, /"J\nÜ"/);

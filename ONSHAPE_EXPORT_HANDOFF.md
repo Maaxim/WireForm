@@ -2,7 +2,8 @@
 
 **Prepared:** 2026-10-27  
 **Target:** WireForm current checkout (including local, not-yet-pushed modifications)  
-**Status:** Implementation specification; no changes to the user's local repository have been made by the author of this handoff.  
+**Status:** Implemented; extended to one comprehensive 13-column CSV on 2026-10-28.
+
 **Phase:** 1 — local, one-way, conductor-level CSV export.
 
 > **Codex: Read this entire file, inspect the current checkout, and implement Phase 1.** The checkout is the authority for internal code structure. Do not assume its implementation matches the public WireForm repository. The Onshape CSV contract MUST be validated against the current installed/published Cable/Wire Routing FeatureScript or a known-working current example before declaring real Onshape compatibility.
@@ -69,11 +70,13 @@ https://forum.onshape.com/discussion/18756/custom-feature-cable-wire-routing/p8
 
 WireForm exports **lowercase full English names**, using `primary-color/secondary-color` for bi-colors. For example `BUWH` → `blue/white`, `WHBU` → `white/blue`, and WireForm `VTWH` → `violet/white`. This avoids assuming that Onshape aliases (such as `VI`) match WireForm/WireViz aliases (such as `VT`). This evidence is the user's video verification; an actual import of WireForm-generated CSV has **not** been performed.
 
+**Additional columns confirmed by the user (2026-10-28):** Cable/Wire Routing can import CSV containing additional columns and select only the columns it needs. The current exporter always produces the single 13-column schema in §5, including optional connector/contact MPNs and strip lengths. No routing-only profile, mode, selector, or separate manufacturing file is provided. This confirmation does not establish that Onshape consumes the contact/strip-length columns for routing.
+
 ### 2.2 NOT verified — do not guess
 
 The author of this handoff could not directly inspect the current FeatureScript source/parser through the public web view or execute an authenticated Onshape import. The following remain **unverified**:
 
-- Whether the current installed feature uses the legacy seven-column header set as-is, including exact ordering, defaults, and case handling.
+- Exact current-parser defaults and case handling; additional-column selection is confirmed by the user above. The exporter uses the requested 13-column schema in §5.
 - The accepted representations for `Gauge` (e.g. `24`, `24 AWG`, `0.5 mm²`) and missing values.
 - Acceptance of every extended WireForm palette name by the installed target version; the full-name/slash syntax itself is resolved above. Direct compatibility of WireForm abbreviations is not assumed or required.
 - Which of `Diameter`, `Area`, `Insulation`, and bend-radius fields are optional and their **exact headings/units**.
@@ -114,7 +117,10 @@ Treat the local checkout as truth. Relevant existing functionality in the user's
 | Twisted-pair ID/pitch/direction | Not exported | Export member wires normally; issue informational limitation when relevant. |
 | Cable shield | Excluded initially | Explicit omission warning per affected shield. |
 | Dedicated connector shield endpoint | Excluded initially unless explicitly verified in Onshape | Never replace with fake pin `0`, `-1`, or `SHIELD`. |
-| Contacts, seals, strip lengths, alternatives, accessories | Not exported | Remain WireForm-native. |
+| Connector primary MPNs | `From Part No` / `To Part No` | Resolve by endpoint connector ID; preserve formatting. |
+| Per-end contact MPNs | `From Contact PN` / `To Contact PN` | Only `contact.mpn` from the exact conductor-end topology link. |
+| Per-end strip lengths | `From Strip Length (mm)` / `To Strip Length (mm)` | Convert each endpoint separately to numeric millimeters; no suffix. |
+| Seals, alternatives, accessories | Not exported | Never substituted for primary connector/contact MPNs. |
 
 ### Physical pin mapping
 
@@ -122,7 +128,7 @@ Always use the stable *actual* physical pin identifier, not the user-editable di
 
 ### Endpoint ordering
 
-For non-directional conductors, reuse the same deterministic endpoint ordering as Connection Mapping, so one project exports the same `From` and `To` assignments each time. This is not an assertion of signal direction.
+For non-directional conductors, reuse the same deterministic endpoint ordering as Connection Mapping, so one project exports the same `From` and `To` assignments each time. This is not an assertion of signal direction. Each resolved endpoint carries its own conductor-end termination metadata **before sorting**; connector MPNs are looked up by that endpoint's connector ID. Reversing normalized order therefore moves the connector/contact MPNs and strip length with their physical pin.
 
 ### Identity / stable Wire ID
 
@@ -151,29 +157,35 @@ Implement `toOnshapeWireColor(...)` as a pure tested mapping, using the current 
 
 The 1.217 video verification supplied by the user resolves the two-color syntax gate. Use the existing authoritative WireForm parser to resolve both colors and export lowercase English names separated by `/`, preserving their order. The local CAT5e conversion test may now pass; end-to-end Onshape import remains a separate verification step.
 
-## 5. Phase 1 CSV profile
+## 5. Comprehensive Onshape CSV schema
 
-The *candidate minimal header profile* evidenced by the independent tutorial is:
+The exporter always emits exactly these 13 headers, in this order:
 
 ```csv
-Wire ID,From Ref,To Ref,From Pin,To Pin,Gauge,Color
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
 ```
 
 Illustrative data (NOT verified as successfully imported by current Onshape):
 
 ```csv
-Wire ID,From Ref,To Ref,From Pin,To Pin,Gauge,Color
-W1-01,J1,J2,1,1,24,red
-W1-02,J1,J2,2,2,24,blue/white
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
+W1-01,J1,1,J2,1,14,red,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7
+W1-02,J1,2,J2,2,14,blue/white,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7
 ```
 
-Codex must first check whether the current installed/published FeatureScript expects additional or different headings or values. Replace this candidate profile with the verified schema if required and document why.
+Illustrative Wire IDs above are shortened for readability; actual existing persistent Wire ID formatting is unchanged. The original implementation placed `To Ref` before `From Pin`; the explicit 13-column sequence and examples in the current user specification take precedence, placing each connector ref directly beside its pin. Field names and values remain unchanged.
+
+The six added fields are optional. Connector part numbers use only the connector's primary `mpn`; contact part numbers use only the exact physical conductor-end link's `termination.contact.mpn`. Manufacturer, description, approved alternatives, generic `pn`, seal MPNs, BOM aggregation, and generic additional components are not substitutes. Part-number formatting, including spaces and hyphens, is preserved.
+
+Strip lengths come from that endpoint's `termination.stripLength`. Supported existing units are converted to millimeters with exact decimal arithmetic; no unit symbol or locale decimal comma is emitted, and meaningful precision is not rounded away. Missing metadata produces empty cells, never `0`, `undefined`, `null`, or a placeholder. Invalid optional strip lengths produce an omission warning and an empty cell; valid routing rows remain exportable.
+
+Onshape can select the columns it needs and ignore others, as confirmed by the user. Contact/strip fields are available manufacturing metadata; their use by the routing feature is not claimed. There is one comprehensive export and no mode or profile selection.
 
 **CSV serialization requirements:**
 
 - Comma delimiter; RFC-4180-style quoting (`"` doubled inside quoted fields), including commas, quotes, and newlines.
 - UTF-8; use stable CRLF records for broad CSV compatibility, unless the verified target fixture says otherwise.
-- A single header row and consistent column counts.
+- A single header row and exactly 13 fields per data row, including empty optional fields. One centralized column definition controls headers, serialization and routing preview order.
 - No locale-dependent decimal commas; numeric values expressed in documented units.
 - Stable row order: natural order of wire/bundle designators with stable conductor identity tie-breakers.
 - Stable filename derived from existing project metadata (sanitize filesystem-unsafe characters).
@@ -218,6 +230,8 @@ Adapt to actual repository conventions; these are conceptual, not mandatory API 
 | More than two endpoints / multidrop | Do not invent pairwise connections; exclude/error unless supported mapping verified. |
 | Missing gauge | Follow verified target requirements; warn/error, never invent AWG. |
 | Invalid/unverified color mapping | Error for impacted row; no silent substitution. |
+| Missing connector/contact MPN or strip length | Empty optional field; does not block a valid routing row. |
+| Invalid strip length | Empty optional field with an explicit warning; does not block a valid routing row. |
 | Cable shield defined or connected | Omit and warn; show count. |
 | Dedicated connector shield endpoint | Not a normal pin; omit affected unsupported edge with clear warning. |
 | Twisted pair | Keep member rows; show informational note that TP metadata was not exported. |
@@ -255,7 +269,7 @@ Existing browser file-download utility
 
 Preferred independent modules/responsibilities:
 
-- `onshapeExportTypes`: normalized row, issue, statistics and profile types.
+- `onshapeExportTypes`: normalized row, issue, statistics and target types.
 - `onshapeMapping`: pure topology → rows; no React and no browser dependencies.
 - `onshapeColor`: explicit color-code conversion.
 - `onshapeValidation`: eligibility and comprehensive diagnostics.
@@ -366,7 +380,7 @@ If no Onshape account/session or current FeatureScript source is accessible to C
 Do not add these to the Phase 1 CSV without verified support:
 
 - Manufacturing wire cut length or conductor-level default/override length.
-- Connector contact, seal, strip-length or termination accessory details.
+- Seals, tooling, notes and termination accessory details beyond the explicitly requested per-end contact MPNs and strip lengths.
 - Twisted-pair properties, pitch and direction.
 - Shield / connector-shell pseudo-pins.
 - Cable bundle/jacket cross-section grouping metadata.
@@ -381,7 +395,7 @@ Do not add these to the Phase 1 CSV without verified support:
 - Mapping dedicated shield terminations to real Onshape connector shell attachment geometry.
 - Configurable Onshape connector pin naming/alias mapping.
 - Importing Onshape 3D routed lengths for comparison with WireForm-approved cut lengths (never silent overwrite).
-- Per-export target FeatureScript profile/version selection **only if actually needed**.
+- Continue using one comprehensive export; profiles, compatibility modes and separate files are out of scope.
 
 ## 13. Completion checklist
 
@@ -407,7 +421,7 @@ Do not add these to the Phase 1 CSV without verified support:
 | Existing topology resolver reused | `resolvePhysicalConnections(...)` from `app/connection-topology.ts`, including the same deterministic endpoint normalization used by Connection Mapping. No SVG, diagram-label or report parsing is used. |
 | Stable conductor ID scheme | Each Wire ID is derived only from persistent component ID + persistent conductor ID using an unambiguous safe encoding. Array indexes are not identities. Duplicate generated IDs are fatal and all colliding rows are excluded. |
 | FeatureScript document and pinned version inspected | Public document URL was requested on 2026-10-28, but returned only the Onshape sign-in application shell (`clientPackageVersion 1.222.1792700711272`). The anonymous API request returned HTTP 401, so the current FeatureScript source/parser and its pinned feature version could not be inspected. The public development thread reports release 1.221 on 2026-10-06 and two-color support in 1.217.0, but does not publish the CSV value grammar. |
-| CSV headers and optional fields confirmed from parser | Parser source **NOT VERIFIED**. Phase 1 implements the evidenced legacy/basic headers exactly: `Wire ID,From Ref,To Ref,From Pin,To Pin,Gauge,Color`. Optional geometry fields are not emitted. |
+| CSV headers and optional fields confirmed from parser | Parser source **NOT VERIFIED**. User confirmed additional-column selection; the single export now always emits the 13-column schema in §5, with primary connector MPNs, exact per-end contact MPNs and strip lengths in mm. Optional routing-geometry fields are not emitted. |
 | Exact AWG/gauge encoding | Current parser **NOT VERIFIED**. The implementation conservatively accepts only explicit AWG forms (`24 AWG`, `AWG 24`, `24`, and `1/0` through `4/0`) and emits the bare designation in `Gauge`; metric/unknown values are fatal. Every export carries an acknowledgement-required compatibility warning that this encoding was not live-import verified. No diameter/area is inferred. |
 | Exact solid-color encoding | **Syntax resolved:** official guidance and the user's 1.217 video verification confirm full English names. Supported WireForm codes are resolved by `parseWireColor(...)` and exported in lowercase (for example `RD` → `red`, `VT` → `violet`). No Onshape abbreviation assumptions or project-data changes are needed. |
 | Exact striped/two-color encoding | **RESOLVED** by the user's 1.217 video verification. Export convention: `primary-color/secondary-color` using lowercase full English names, for example `GNYE` → `green/yellow`, `BUWH` → `blue/white`, `WHBU` → `white/blue`. Both colors come from the authoritative WireForm parser; unsupported/missing source codes remain fatal. The previous `UNVERIFIED_BICOLOR_ENCODING` blocker is removed. Actual Onshape import is still **NOT VERIFIED**. |
@@ -415,7 +429,7 @@ Do not add these to the Phase 1 CSV without verified support:
 | Local unit tests | Initial exporter suite passed (263 repository tests). Color update adds explicit solid and ordered bi-color mappings, unsupported-code errors, identical conversion for standalone/bundle/multicore conductors, no mutation, exact escaped final CSV, and the complete eight-row striped CAT5e fixture. Updated results are recorded below. |
 | Typecheck/build | `npm run typecheck` passed; `npm run lint` passed; `npm run build` passed; `npm test` passed (results recorded 2026-10-28). |
 | Real Onshape CSV import test | **NOT VERIFIED** — no authenticated Onshape document/session or current FeatureScript source was available. The UI states this and requires warning acknowledgement before download. |
-| Known exclusions / warnings | Shields are counted and warned but never become fake conductor rows. TP membership is informational and does not create columns. Open/unresolved/multidrop/non-pin endpoints, missing stable IDs, invalid/missing gauge/color and duplicate Wire IDs are fatal. Supported bi-colors now export normally. Lengths, conductor overrides, terminations, BOM fields, geometry and 3D data are intentionally absent. Gauge/current-profile and live-import verification remain pending. |
+| Known exclusions / warnings | Shields are counted and warned but never become fake conductor rows. TP membership is informational and does not create columns. Open/unresolved/multidrop/non-pin endpoints, missing stable IDs, invalid/missing gauge/color and duplicate Wire IDs are fatal. Supported bi-colors export normally. Wire cut lengths, conductor overrides, seals/tooling/notes, BOM fields, routing geometry and 3D data are absent. Missing optional manufacturing values remain empty; invalid strip values warn. Gauge and live-import verification remain pending. |
 | Any deviations from this plan | The current checkout has an export toolbar rather than a dropdown, so the native entry was added beside the existing BOM/HTML/PDF exports. The user's 1.217 video verification resolves the color research gate; no further color-syntax research is required for this implementation. Current-parser/gauge and live-import limitations remain documented. |
 
 ### Commands and results (2026-10-28)
@@ -434,6 +448,17 @@ Do not add these to the Phase 1 CSV without verified support:
 - The same converter remains in the shared export-row path for standalone wires, bundle conductors, and multicore cable conductors. Unsupported codes retain the existing fatal error policy.
 - Verification results: `node --experimental-strip-types --test tests/onshape-export.test.mjs` passed (25 tests/subtests); `npm run lint` and `npm run typecheck` passed; `npm test` passed (267 tests, 0 failures), including the production build. These supersede the initial implementation counts above.
 - Remaining limitations: actual CSV import/routing in Onshape is **NOT VERIFIED**; current Gauge grammar and full current-parser/header behavior remain unverified. Shields and TP metadata retain the Phase 1 omission policy.
+
+### Per-end manufacturing metadata extension (2026-10-28)
+
+- Branch: `maxim/new_features`; extends the existing native exporter from commit `601dfd6`.
+- One comprehensive 13-column file replaces the previous seven-column file. `ONSHAPE_CSV_COLUMNS` is the single source for headers, serialization and compact routing-preview order. No alternate export modes or additional dialogs were introduced.
+- `ResolvedConnectionEndpoint.termination` carries its source conductor-end link metadata before the existing deterministic normalization. Connector primary MPNs resolve by connector ID, while contact MPN and strip length resolve from that exact endpoint. No per-pin lookup that could borrow another conductor's metadata is used.
+- The new `parseLengthMillimeters(...)` reuses the existing unit definitions/parser and performs exact decimal scaling without losing meaningful precision. Existing `parseLengthMeters(...)` retains its original rounding and behavior for BOM/length consumers.
+- Missing optional values remain empty and do not block export. Invalid strip lengths are omitted with a warning, preserving valid routing rows. Numbered pins, Wire IDs, color conversion, shields and TP handling are unchanged.
+- Header-order decision: the user's explicit 13-column sequence takes priority over the previous implementation's `To Ref`/`From Pin` ordering. No field values are remapped positionally.
+- Verification: focused Onshape exporter, Connection Mapping and hover suites passed (52 tests/subtests). `npm run lint` and `npm run typecheck` passed. `npm test` passed (276 tests, 0 failures), including the production build. Regression coverage includes reversed endpoints with different connector/contact MPNs and strips; all conductor types; distinct cavity contacts; no metadata inference; millimeter conversions/precision; 13-field counts and order; optional blanks; Unicode/quote/comma/newline escaping; byte-identical exports and no project mutation. The production build retains its existing large-chunk advisory.
+- Actual Onshape import is still **NOT VERIFIED**. The user confirmed unused-column selection; this does not prove the routing feature consumes the four contact/strip columns.
 
 ## 15. External references (ordered by direct relevance)
 

@@ -10,24 +10,15 @@ import {
   type HarnessProject,
 } from "./model.ts";
 import { parseWireColor } from "./wire-colors.ts";
-
-export const ONSHAPE_CSV_HEADERS = [
-  "Wire ID",
-  "From Ref",
-  "To Ref",
-  "From Pin",
-  "To Pin",
-  "Gauge",
-  "Color",
-] as const;
+import { parseLengthMillimeters } from "./length.ts";
+import { isValidStripLength } from "./termination.ts";
 
 /**
- * Conservative legacy profile evidenced by the public Cable/Wire Routing
- * documentation. A live import against the current FeatureScript is still
- * required before this profile can be called fully compatibility-verified.
+ * One comprehensive CSV for Cable/Wire Routing. The user confirmed additional
+ * columns can be imported and selected as needed. Live import remains untested.
  */
-export const ONSHAPE_CSV_PROFILE = {
-  name: "Neil Cooke Cable/Wire Routing legacy seven-column CSV",
+export const ONSHAPE_CSV_TARGET = {
+  name: "Neil Cooke Cable/Wire Routing",
   liveImportVerified: false,
   bicolorEncodingVerified: true,
 } as const;
@@ -45,12 +36,39 @@ export interface OnshapeExportIssue {
 export interface OnshapeCsvRow {
   wireId: string;
   fromRef: string;
-  toRef: string;
   fromPin: string;
+  toRef: string;
   toPin: string;
   gauge: string;
   color: string;
+  fromPartNo: string;
+  toPartNo: string;
+  fromContactPn: string;
+  toContactPn: string;
+  fromStripLengthMm: string;
+  toStripLengthMm: string;
 }
+
+/** The single source for header order, serialization, and routing preview. */
+export const ONSHAPE_CSV_COLUMNS = [
+  { heading: "Wire ID", key: "wireId" },
+  { heading: "From Ref", key: "fromRef" },
+  { heading: "From Pin", key: "fromPin" },
+  { heading: "To Ref", key: "toRef" },
+  { heading: "To Pin", key: "toPin" },
+  { heading: "Gauge", key: "gauge" },
+  { heading: "Color", key: "color" },
+  { heading: "From Part No", key: "fromPartNo" },
+  { heading: "To Part No", key: "toPartNo" },
+  { heading: "From Contact PN", key: "fromContactPn" },
+  { heading: "To Contact PN", key: "toContactPn" },
+  { heading: "From Strip Length (mm)", key: "fromStripLengthMm" },
+  { heading: "To Strip Length (mm)", key: "toStripLengthMm" },
+] as const satisfies ReadonlyArray<{ heading: string; key: keyof OnshapeCsvRow }>;
+
+export const ONSHAPE_CSV_HEADERS = ONSHAPE_CSV_COLUMNS.map(
+  (column) => column.heading,
+);
 
 export type OnshapeConductorKind = ResolvedPhysicalConnection["conductor"]["kind"];
 
@@ -136,7 +154,7 @@ export interface OnshapeValueConversion {
 /**
  * Normalizes the AWG forms WireForm accepts to the bare AWG designation used
  * by the legacy Gauge column. Metric area/diameter values are intentionally not
- * inferred because this profile has no geometry column.
+ * inferred because this export has no routing-geometry column.
  */
 export function convertGaugeForOnshape(rawGauge: string): OnshapeValueConversion {
   const raw = rawGauge.trim();
@@ -228,7 +246,7 @@ function endpointProblem(
     return issue(
       "error",
       "NON_PIN_ENDPOINT",
-      `${label} terminates at ${endpoint.connectorDesignator || "an endpoint"}:${endpoint.pinDisplay || "unknown"}, which is not a numbered physical connector pin supported by this CSV profile.`,
+      `${label} terminates at ${endpoint.connectorDesignator || "an endpoint"}:${endpoint.pinDisplay || "unknown"}, which is not a numbered physical connector pin supported by this CSV export.`,
       connection,
     );
   }
@@ -258,6 +276,42 @@ function shieldTerminationCount(project: HarnessProject, component: HarnessCompo
   }).length;
 }
 
+function endpointManufacturingData(
+  endpoint: ResolvedConnectionEndpoint,
+  components: ReadonlyMap<string, HarnessComponent>,
+  connection: ResolvedPhysicalConnection,
+  issues: OnshapeExportIssue[],
+) {
+  const rawStripLength = endpoint.termination?.stripLength;
+  let stripLengthMm = "";
+  if (rawStripLength?.trim()) {
+    const converted = isValidStripLength(rawStripLength)
+      ? parseLengthMillimeters(rawStripLength)
+      : undefined;
+    if (converted !== undefined) {
+      stripLengthMm = converted;
+    } else {
+      issues.push(
+        issue(
+          "warning",
+          "INVALID_STRIP_LENGTH",
+          `${componentMemberLabel(connection)} at ${endpoint.connectorDesignator}:${endpoint.physicalPin} has invalid strip length "${rawStripLength}"; its optional CSV field is left empty.`,
+          connection,
+        ),
+      );
+    }
+  }
+  const partNo = endpoint.connectorId
+    ? components.get(endpoint.connectorId)?.mpn ?? ""
+    : "";
+  const contactPn = endpoint.termination?.contact?.mpn ?? "";
+  return {
+    partNo: partNo.trim() ? partNo : "",
+    contactPn: contactPn.trim() ? contactPn : "",
+    stripLengthMm,
+  };
+}
+
 export function buildOnshapeCableWireExport(
   project: HarnessProject,
 ): OnshapeExportResult {
@@ -266,7 +320,7 @@ export function buildOnshapeCableWireExport(
       severity: "warning",
       code: "LIVE_IMPORT_NOT_VERIFIED",
       message:
-        "This legacy seven-column profile and bare AWG Gauge encoding have not been verified by importing into the current Onshape FeatureScript in this environment.",
+        "This CSV export and bare AWG Gauge encoding have not been verified by importing into the current Onshape FeatureScript in this environment.",
     },
   ];
   const components = new Map(
@@ -357,16 +411,34 @@ export function buildOnshapeCableWireExport(
     ) {
       continue;
     }
+    const from = endpointManufacturingData(
+      connection.from,
+      components,
+      connection,
+      issues,
+    );
+    const to = endpointManufacturingData(
+      connection.to,
+      components,
+      connection,
+      issues,
+    );
     candidates.push({
       connection,
       row: {
         wireId: onshapeWireId(component.id, conductorId),
         fromRef: connection.from.connectorDesignator,
-        toRef: connection.to.connectorDesignator,
         fromPin: String(connection.from.physicalPin),
+        toRef: connection.to.connectorDesignator,
         toPin: String(connection.to.physicalPin),
         gauge: gauge.value,
         color: color.value,
+        fromPartNo: from.partNo,
+        toPartNo: to.partNo,
+        fromContactPn: from.contactPn,
+        toContactPn: to.contactPn,
+        fromStripLengthMm: from.stripLengthMm,
+        toStripLengthMm: to.stripLengthMm,
       },
     });
   }
@@ -400,7 +472,7 @@ export function buildOnshapeCableWireExport(
       severity: "warning",
       code: "SHIELD_OMITTED",
       designator: component.designator,
-      message: `${component.designator} shield is omitted because the Phase 1 CSV profile has no shield row semantics${
+      message: `${component.designator} shield is omitted because the CSV export has no shield row semantics${
         terminations
           ? ` (${terminations} shield termination${terminations === 1 ? "" : "s"} present)`
           : ""
@@ -445,16 +517,7 @@ export function serializeOnshapeCableWireCsv(rows: readonly OnshapeCsvRow[]) {
   const lines = [
     ONSHAPE_CSV_HEADERS.map(csvCell).join(","),
     ...rows.map((row) =>
-      [
-        row.wireId,
-        row.fromRef,
-        row.toRef,
-        row.fromPin,
-        row.toPin,
-        row.gauge,
-        row.color,
-      ]
-        .map(csvCell)
+      ONSHAPE_CSV_COLUMNS.map((column) => csvCell(row[column.key] ?? ""))
         .join(","),
     ),
   ];

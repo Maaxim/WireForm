@@ -6,6 +6,7 @@ import {
   type HarnessProject,
   type PortRef,
   type TopologyLink,
+  type WireTermination,
 } from "./model.ts";
 import { getConnectorPinLabel, getPinReportLabel } from "./pin-labels.ts";
 import {
@@ -30,6 +31,8 @@ export interface ResolvedConnectionEndpoint {
   physicalPin?: number;
   pinLabel: string;
   pinDisplay: string;
+  /** Metadata from this physical conductor-end link, retained during ordering. */
+  termination?: WireTermination;
 }
 
 export interface PhysicalConnectionMemberRef {
@@ -194,7 +197,10 @@ function conductorEndpoints(
     const ownIsTo = link.to.nodeId === component.id && link.to.portId === portId;
     if (!ownIsFrom && !ownIsTo) return [];
     return [
-      resolveConnectorEndpoint(components, ownIsFrom ? link.to : link.from),
+      {
+        ...resolveConnectorEndpoint(components, ownIsFrom ? link.to : link.from),
+        ...(link.termination ? { termination: link.termination } : {}),
+      },
     ];
   });
 }
@@ -274,7 +280,7 @@ export function resolvePhysicalConnections(
     .flatMap((component) =>
       Array.from({ length: component.wireCount }, (_, conductorIndex) => {
         const conductor = conductorModel(component, conductorIndex);
-    const [from, to] = normalizedConnectionEndpoints(
+        const [from, to] = normalizedConnectionEndpoints(
           conductorEndpoints(
             project,
             components,

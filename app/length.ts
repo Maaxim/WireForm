@@ -19,7 +19,7 @@ const LENGTH_FACTORS_TO_METERS: Record<string, number> = {
   yards: 0.9144,
 };
 
-export function parseLengthMeters(value: string) {
+function parseLength(value: string) {
   const match = /^\s*(\d+(?:[.,]\d+)?)\s*([A-Za-z"]+)\s*$/.exec(value);
   if (!match) return undefined;
   const quantity = Number(match[1].replace(",", "."));
@@ -27,5 +27,30 @@ export function parseLengthMeters(value: string) {
   if (!Number.isFinite(quantity) || quantity <= 0 || factor === undefined) {
     return undefined;
   }
-  return Number((quantity * factor).toFixed(9));
+  return { quantity, factor, decimal: match[1].replace(",", ".") };
+}
+
+export function parseLengthMeters(value: string) {
+  const parsed = parseLength(value);
+  return parsed
+    ? Number((parsed.quantity * parsed.factor).toFixed(9))
+    : undefined;
+}
+
+/** Exact decimal millimeters for CSV cells, without binary drift or rounding. */
+export function parseLengthMillimeters(value: string): string | undefined {
+  const parsed = parseLength(value);
+  if (!parsed) return undefined;
+  const [whole, fraction = ""] = parsed.decimal.split(".");
+  const [factorWhole, factorFraction = ""] = String(parsed.factor).split(".");
+  const places = fraction.length + factorFraction.length;
+  const product = (
+    BigInt(whole + fraction) * BigInt(factorWhole + factorFraction) * BigInt(1000)
+  )
+    .toString()
+    .padStart(places + 1, "0");
+  if (!places) return product;
+  const integer = product.slice(0, -places);
+  const decimal = product.slice(-places).replace(/0+$/, "");
+  return decimal ? `${integer}.${decimal}` : integer;
 }

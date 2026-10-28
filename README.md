@@ -44,6 +44,9 @@ machine.
   both the topology canvas and WireViz-derived preview
 - YAML download and component-library import/export
 - Native, deterministic BOM CSV export directly from the project model
+- Native Onshape Cable/Wire Routing CSV export with physical pin references,
+  ordered bi-color names, and connector/contact part numbers and strip lengths
+  at both ends of each conductor
 - Self-contained HTML harness report export with an inline vector diagram,
   connector pinouts, termination data, BOM, and print styling
 - Native page-oriented PDF engineering report export with vector diagrams,
@@ -246,6 +249,41 @@ remains standard and contains the two ordinary member wires, so WireViz YAML
 does not retain pair pitch or direction and WireViz import cannot reconstruct
 the relationship. Individual User Library wire templates likewise do not embed
 half of a project-level pair.
+
+## Onshape CSV export
+
+Choose **Export Onshape Cable/Wire Routing CSV** in the top bar, review the
+conductor counts and validation messages, and download the CSV. Import it as an
+Onshape document tab and select the columns needed by Cable/Wire Routing.
+WireForm produces one comprehensive file with these 13 columns:
+
+```csv
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
+```
+
+Each eligible standalone wire, bundle conductor, or multicore conductor exports
+once using its existing stable Wire ID. From/To use physical connector pins in
+the same deterministic order as Connection Mapping. Colors use lowercase English
+names, preserving primary/secondary order (`BUWH` → `blue/white`).
+
+`From Part No` and `To Part No` contain the corresponding connector's primary
+MPN. `From Contact PN` and `To Contact PN` contain `contact.mpn` from that exact
+conductor-end connection. Alternatives, seals, and generic additional components
+are not substituted. The two strip-length columns use the same per-end
+termination metadata, converted to numeric millimeters without a unit suffix.
+Contacts and strip lengths stay attached to their physical endpoints when
+From/To order changes. Original part-number formatting is preserved.
+
+Missing optional values are empty cells and do not block export. Invalid strip
+lengths are left empty with a warning. The preview shows routing fields to remain
+compact; every download includes all 13 columns. The four contact/strip-length
+fields are additional manufacturing metadata; WireForm does not claim that
+Onshape consumes them for routing. There are no export modes or separate files.
+
+Shield rows remain excluded with a warning, and twisted-pair metadata is omitted
+while its physical conductors export normally. Live import of WireForm-generated
+CSV into Onshape remains unverified. See [the exporter handoff](ONSHAPE_EXPORT_HANDOFF.md)
+for compatibility evidence and remaining limitations.
 
 ## Local development
 
