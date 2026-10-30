@@ -192,10 +192,11 @@ export interface ProjectFilePreview {
   kind: "image" | "pdf" | "text" | "download";
   url?: string;
   text?: string;
+  bytes?: Uint8Array<ArrayBuffer>;
   dispose: () => void;
 }
 
-/** Only raster signatures, sandboxed PDF and escaped plain text can preview. */
+/** Only raster signatures, PDF.js byte input and escaped plain text can preview. */
 export function createProjectFilePreview(file: ProjectAttachment): ProjectFilePreview {
   const bytes = attachmentBytes(file);
   const starts = (...signature: number[]) => signature.every((byte, index) => bytes[index] === byte);
@@ -203,11 +204,11 @@ export function createProjectFilePreview(file: ProjectAttachment): ProjectFilePr
   if (starts(137, 80, 78, 71, 13, 10, 26, 10)) mime = "image/png";
   else if (starts(255, 216, 255)) mime = "image/jpeg";
   else if (starts(82, 73, 70, 70) && String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP") mime = "image/webp";
-  else if (starts(37, 80, 68, 70, 45)) mime = "application/pdf";
+  else if (starts(37, 80, 68, 70, 45)) return { kind: "pdf", bytes, dispose: () => undefined };
   if (mime) {
     const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     let disposed = false;
-    return { kind: mime === "application/pdf" ? "pdf" : "image", url, dispose: () => {
+    return { kind: "image", url, dispose: () => {
       if (!disposed) URL.revokeObjectURL(url);
       disposed = true;
     } };

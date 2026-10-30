@@ -283,11 +283,20 @@ fallback support. Failed/corrupt recovery is left untouched until you explicitly
 open or start a project. Base64 is encoded once on upload; layout edits do not
 decode or re-encode reference files.
 
-PNG/JPEG/WebP previews use raster signatures, PDF previews use a restricted
-browser frame, and UTF-8 text/CSV previews render escaped plain text (capped at
-1 MiB). PDF support depends on the browser's sandboxed viewer; Download is always
-available. Office documents, ZIPs, SVG/HTML and unknown binaries are download-only.
-Nothing is evaluated as attachment code, and temporary Blob URLs are released.
+PNG/JPEG/WebP previews use a near-fullscreen viewer with initial fit, wheel zoom
+at the cursor, double-click zoom, drag/pinch navigation, Fit, 100% and Reset.
+PDFs use locally bundled Mozilla PDF.js and its worker, with lazy page rendering,
+page navigation, Fit Page/Width, Ctrl+wheel zoom, scroll/drag navigation and
+high-DPI canvas rendering. Only nearby pages retain canvases; each canvas is
+capped at 12 megapixels/8192 pixels per side to bound extreme zoom memory.
+Password-protected PDFs prompt locally; passwords and viewer state are never
+stored in the project. Escape closes the viewer; +/− zoom, 0 resets and PDF
+Page Up/Down navigate. Viewing never modifies the project or triggers autosave.
+UTF-8 text/CSV previews render escaped monospaced plain text (capped at 1 MiB),
+with optional wrapping. Office documents, ZIPs, SVG/HTML and unknown binaries
+remain download-only. Download Original File is always available, including
+when preview fails. Nothing is evaluated as attachment code; temporary Blob
+URLs, PDF render tasks, workers and canvas buffers are released on close.
 SHA-256 is stored and checked on download where browser Web Crypto is available.
 
 Project Files are separate from **Harness Images**: they never enter HTML/PDF
@@ -299,6 +308,9 @@ Run `npm run test:project-files` for binary-integrity, management, preview,
 storage-failure and export-isolation tests. The optional
 `scripts/browser-project-files-smoke.mjs` drives an isolated local Chrome/CDP
 session for the complete UI/save/reload/download workflow.
+`scripts/browser-project-file-viewer-smoke.mjs` exercises the production image
+viewer and local PDF worker with a high-resolution image, a 20-page PDF,
+password/error handling, zoom/pan, downloads and autosave isolation.
 
 ## Onshape CSV export
 

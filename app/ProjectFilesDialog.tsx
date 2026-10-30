@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, File, Paperclip, Plus, Trash2, Upload, X } from "lucide-react";
 import type { ProjectAttachment } from "./model";
+import { ProjectFileViewer } from "./ProjectFileViewer";
 import {
   MAX_ATTACHMENT_SIZE, MAX_TOTAL_ATTACHMENTS_SIZE,
-  addProjectAttachments, assertProjectFilesFit, createProjectFilePreview,
+  addProjectAttachments, assertProjectFilesFit,
   prepareProjectAttachment, projectAttachmentDownloadBlob,
   projectAttachmentLimitWarnings, projectFileSizeLabel,
   replaceProjectAttachment, totalAttachmentSize, updateProjectAttachment,
-  type ProjectFilePreview,
 } from "./project-files";
 
 interface Props {
@@ -22,7 +22,6 @@ export function ProjectFilesDialog(props: Props) {
   useEffect(() => { latest.current = props; });
   const alive = useRef(true);
   const dialogRef = useRef<HTMLElement>(null);
-  const previewRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replacementId = useRef<string | null>(null);
@@ -31,7 +30,6 @@ export function ProjectFilesDialog(props: Props) {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<ProjectFilePreview | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [filename, setFilename] = useState("");
   const current = props.attachments.find((file) => file.id === previewId);
@@ -61,23 +59,6 @@ export function ProjectFilesDialog(props: Props) {
     window.addEventListener("keydown", handleKey);
     return () => { window.removeEventListener("keydown", handleKey); previousFocus?.focus(); };
   }, []);
-
-  useEffect(() => {
-    if (!current) { setPreview(null); return; }
-    try {
-      const result = createProjectFilePreview(current);
-      setPreview(result);
-      return () => result.dispose();
-    } catch (problem) {
-      setPreview(null);
-      setError(problem instanceof Error ? problem.message : "The file could not be previewed.");
-    }
-    // Rename/description edits do not decode an unchanged binary again.
-  }, [current?.id, current?.data, current?.mimeType, current?.filename]);
-
-  useEffect(() => {
-    if (preview) previewRef.current?.scrollIntoView({ block: "nearest" });
-  }, [preview]);
 
   const receiveFiles = async (files: File[], replaceId?: string) => {
     if (busyRef.current || !files.length) return;
@@ -204,19 +185,11 @@ export function ProjectFilesDialog(props: Props) {
           </div>
           {!props.attachments.length && <p className="empty-selection">No project files have been added.</p>}
           {props.attachments.length > 0 && !visibleFiles.length && <p className="empty-selection">No project files match your search.</p>}
-          {current && preview && <section ref={previewRef} className="project-file-preview" aria-label="Project file preview">
-            <div><strong>{current.filename}</strong><button onClick={() => setPreviewId(null)} aria-label="Close file preview"><X size={16} /></button></div>
-            {preview.kind === "image" && <img src={preview.url} alt={current.filename} onError={() => setError("Image preview unavailable. Download the original file instead.")} />}
-            {preview.kind === "pdf" && <>
-              <iframe src={preview.url} title={`PDF preview: ${current.filename}`} sandbox="" referrerPolicy="no-referrer" />
-              <p>If your browser cannot display this restricted PDF preview, download the original file.</p>
-            </>}
-            {preview.kind === "text" && <pre>{preview.text}</pre>}
-            {preview.kind === "download" && <p>Preview is unavailable for this file. Use Download to open it in an appropriate application.</p>}
-          </section>}
         </div>
         <div className="modal-footer"><button className="secondary-button" onClick={props.onClose}>Close</button></div>
       </section>
+      {current && <ProjectFileViewer key={current.id} attachment={current}
+        onClose={() => setPreviewId(null)} onDownload={() => void download(current)} />}
     </div>
   );
 }

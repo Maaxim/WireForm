@@ -30,10 +30,16 @@ versioned source links above.
 | Lucide React | 0.468.0 | ISC | <https://github.com/lucide-icons/lucide> |
 | YAML | 2.9.0 | ISC | <https://github.com/eemeli/yaml> |
 | pdfmake | 0.3.11 | MIT | <https://github.com/bpampuch/pdfmake/tree/0.3.11> |
+| Mozilla PDF.js | 6.4.299 | Apache-2.0 | <https://github.com/mozilla/pdf.js> |
 | Roboto fonts, bundled by pdfmake | bundled with pdfmake 0.3.11 | Apache-2.0 | <https://github.com/googlefonts/roboto> |
 
 Build-only dependencies are recorded in `package-lock.json` and are not loaded
 by the deployed application.
+
+The build also bundles PDF.js CMaps, standard fonts and image/colour/function
+decoders from `pdfjs-dist`. Their upstream license files are preserved beside
+the assets under `vendor/pdfjs/`, including `vendor/pdfjs/LICENSE` in the deployed
+site. PDF.js is loaded only when previewing a Project File PDF.
 
 ## License texts
 

@@ -245,15 +245,16 @@ test("native project alone includes Project Files; every manufacturing export an
   assert.equal(reopen(project).attachments.length, 4);
 });
 
-test("editor exposes multiple-file/drop management with sandboxed PDF and plain-text previews", async () => {
+test("editor retains file management while previews use a separate local viewer", async () => {
   const dialog = await readFile(new URL("../app/ProjectFilesDialog.tsx", import.meta.url), "utf8");
+  const viewer = await readFile(new URL("../app/ProjectFileViewer.tsx", import.meta.url), "utf8");
   assert.match(source, /open-project-files/);
   assert.match(dialog, /type="file" multiple/);
   assert.match(dialog, /onDrop=/);
   assert.match(dialog, /window\.confirm/);
-  assert.match(dialog, /sandbox="" referrerPolicy="no-referrer"/);
-  assert.match(dialog, /<pre>\{preview\.text\}<\/pre>/);
-  assert.doesNotMatch(dialog, /dangerouslySetInnerHTML|eval\(/);
+  assert.match(dialog, /<ProjectFileViewer/);
+  assert.match(viewer, /\{preview\.text\}/);
+  assert.doesNotMatch(dialog + viewer, /dangerouslySetInnerHTML|eval\(|<iframe/);
   assert.match(source, /indexedDbOnly: Boolean\(project\.attachments\?\.length\)/);
   assert.match(source, /Latest changes have not been saved locally/);
   assert.match(source, /!storageReady \|\| autosaveBlocked/);

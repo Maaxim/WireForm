@@ -90,12 +90,14 @@ try {
   await evaluate(`document.querySelector('.project-file-rename').requestSubmit()`);
   samples[0].name = "J1_Datasheet.pdf";
   await rowClick("Confidential_Notes.txt", "View");
-  await waitFor(`document.querySelector('.project-file-preview pre')?.textContent.includes('<script>')`, "escaped text preview");
+  await waitFor(`document.querySelector('.project-viewer-text pre')?.textContent.includes('<script>')`, "escaped text preview");
   assert.equal(await evaluate("globalThis.projectFileExecuted===undefined"), true);
+  await click('[aria-label="Close file preview"]');
   await rowClick("Assembly_Reference.png", "View");
-  await waitFor(`document.querySelector('.project-file-preview img')?.naturalWidth===1`, "PNG preview");
+  await waitFor(`document.querySelector('.project-viewer-image-viewport img')?.naturalWidth===1`, "PNG preview");
+  await click('[aria-label="Close file preview"]');
   await rowClick("J1_Datasheet.pdf", "View");
-  await waitFor(`document.querySelector('.project-file-preview iframe')?.getAttribute('sandbox')===''`, "sandboxed PDF / download fallback");
+  await waitFor(`document.querySelector('[data-testid="pdf-viewport"] [role="alert"]')?.textContent.includes('Unable to preview this PDF')`, "invalid zero-page PDF offers original download");
   await click('[aria-label="Close file preview"]');
   const dropped = sample("Dropped.csv", "one,two\r\n1,2", "text/csv");
   await addFiles([dropped], false, true); samples.push(dropped);
@@ -213,5 +215,5 @@ try {
     assert.equal(await evaluate(`localStorage.getItem('wireform:project-autosave')`), null);
   }
   assert.deepEqual(exceptions, []);
-  console.log(JSON.stringify({ status: "passed", attachments: samples.length, capacityBytes, verified: ["multi-add", "drag/drop", "rename", "description", "replace", "oversize rollback", "cancel/confirm deletion", "image/plain-text/sandboxed-PDF preview", "original binary downloads", "native save/reopen", "IndexedDB reload", "quota failure/recovery"], nativeName, screenshot: resolve(downloadPath, "..", "project-files-ui.png") }, null, 2));
+  console.log(JSON.stringify({ status: "passed", attachments: samples.length, capacityBytes, verified: ["multi-add", "drag/drop", "rename", "description", "replace", "oversize rollback", "cancel/confirm deletion", "image/plain-text/PDF.js error fallback", "original binary downloads", "native save/reopen", "IndexedDB reload", "quota failure/recovery"], nativeName, screenshot: resolve(downloadPath, "..", "project-files-ui.png") }, null, 2));
 } finally { socket.close(); }
