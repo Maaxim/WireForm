@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
     "node_modules/**",
     "public/vendor/**",
     "vendor/sources/**",
+    "work/**",
+    "outputs/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

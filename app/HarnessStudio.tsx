@@ -39,6 +39,7 @@ import {
   Maximize2,
   Minus,
   Network,
+  Paperclip,
   Plus,
   Redo2,
   RotateCcw,
@@ -52,6 +53,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import YAML from "yaml";
+import { ProjectFilesDialog } from "./ProjectFilesDialog";
+import { projectAttachmentLimitWarnings } from "./project-files";
 import {
   bomFilenameForTitle,
   buildBomRows,
@@ -133,6 +136,7 @@ import {
   createConnectorShieldTerminationId,
   createEmptyProject,
   makeComponent,
+  normalizeProject,
   parseProjectFile,
   remapTopologyLink,
   serializeProjectFile,
@@ -1019,6 +1023,7 @@ export function HarnessStudio() {
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
+  const [autosaveBlocked, setAutosaveBlocked] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<
     "loading" | "saving" | "saved" | "error"
   >("loading");
@@ -1033,6 +1038,7 @@ export function HarnessStudio() {
   );
   const [librariesReady, setLibrariesReady] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [projectFilesOpen, setProjectFilesOpen] = useState(false);
   const [harnessView, setHarnessView] = useState<"notes" | "images">("notes");
   const [newLibraryName, setNewLibraryName] = useState("");
   const [duplicateMode, setDuplicateMode] =
@@ -1449,6 +1455,8 @@ export function HarnessStudio() {
       setSelectedId(firstId);
       setSelectedIds(firstId ? [firstId] : []);
       setHarnessView("notes");
+      setProjectFilesOpen(false);
+      setAutosaveBlocked(false);
       setPendingPort(null);
       setDirty(markDirty);
       setNotice(message);
@@ -1459,29 +1467,40 @@ export function HarnessStudio() {
   useEffect(() => {
     let mounted = true;
     void Promise.all([
-      readLocalDocument<string>(AUTOSAVE_KEY),
+      readLocalDocument<string | HarnessProject>(AUTOSAVE_KEY),
       readLocalDocument<unknown>(LIBRARIES_KEY),
     ]).then(([autosave, storedLibraries]) => {
       if (!mounted) return;
+      let restoreFailed = false;
       if (autosave) {
         try {
-          const restored = parseProjectFile(autosave);
+          const restored = typeof autosave === "string"
+            ? parseProjectFile(autosave)
+            : normalizeProject(autosave);
           replaceProject(
             restored.project,
             restored.migratedFrom
               ? `Recovered the local autosave and migrated it from schema ${restored.migratedFrom}.`
               : "Recovered the most recent local autosave.",
           );
-        } catch {
+        } catch (error) {
+          restoreFailed = true;
+          setAutosaveBlocked(true);
           setNotice(
-            "The local autosave could not be restored; the example harness was loaded.",
+            `The local autosave could not be restored and has been left untouched. ${error instanceof Error ? error.message : "Open your saved project to recover it."}`,
           );
         }
       }
       setLibraries(normalizeLibraryCollection(storedLibraries));
       setStorageReady(true);
       setLibrariesReady(true);
-      setAutosaveStatus("saved");
+      setAutosaveStatus(restoreFailed ? "error" : "saved");
+    }).catch(() => {
+      if (!mounted) return;
+      setStorageReady(true);
+      setAutosaveBlocked(true);
+      setAutosaveStatus("error");
+      setNotice("Local storage could not be read and has been left untouched. Open your saved WireForm project to continue; download a native project to preserve new changes.");
     });
     return () => {
       mounted = false;
@@ -1489,15 +1508,24 @@ export function HarnessStudio() {
   }, [replaceProject]);
 
   useEffect(() => {
-    if (!storageReady) return;
+    if (!storageReady || autosaveBlocked) return;
     setAutosaveStatus("saving");
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      void writeLocalDocument(AUTOSAVE_KEY, serializeProjectFile(project))
-        .then(() => setAutosaveStatus("saved"))
-        .catch(() => setAutosaveStatus("error"));
+      // IndexedDB stores the model directly: unchanged Base64 is never re-encoded
+      // or expanded into a second JSON string on every small layout change.
+      void writeLocalDocument(AUTOSAVE_KEY, project, {
+        indexedDbOnly: Boolean(project.attachments?.length),
+      })
+        .then(() => { if (!cancelled) setAutosaveStatus("saved"); })
+        .catch(() => {
+          if (cancelled) return;
+          setAutosaveStatus("error");
+          setNotice("Latest changes have not been saved locally. Download the WireForm project to keep your changes and Project Files.");
+        });
     }, 700);
-    return () => window.clearTimeout(timer);
-  }, [project, storageReady]);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [project, storageReady, autosaveBlocked]);
 
   useEffect(() => {
     if (!librariesReady) return;
@@ -1521,6 +1549,7 @@ export function HarnessStudio() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (projectFilesOpen) return;
       const target = event.target as HTMLElement | null;
       const isEditing =
         target?.tagName === "INPUT" ||
@@ -1582,6 +1611,7 @@ export function HarnessStudio() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    projectFilesOpen,
     copySelection,
     pasteSelection,
     redo,
@@ -2518,9 +2548,12 @@ export function HarnessStudio() {
       ) {
         return;
       }
+      const attachmentWarnings = projectAttachmentLimitWarnings(parsed.project.attachments ?? []);
       replaceProject(
         parsed.project,
-        parsed.migratedFrom
+        attachmentWarnings.length
+          ? "Project opened. Existing Project Files exceed upload limits and were preserved; review them in Project Files."
+          : parsed.migratedFrom
           ? `Project opened and migrated from schema ${parsed.migratedFrom}.`
           : "Editable WireForm project opened.",
       );
@@ -2974,7 +3007,9 @@ export function HarnessStudio() {
           <span className="revision-chip">REV {project.revision || "—"}</span>
           <span
             className={`autosave-chip autosave-${autosaveStatus}`}
-            title="Projects are autosaved in this browser"
+            title={autosaveStatus === "error"
+              ? "Latest changes have not been saved locally. Download the WireForm project to keep your changes."
+              : "Projects are autosaved in this browser"}
           >
             <Database size={11} />
             {autosaveStatus === "loading"
@@ -2982,7 +3017,7 @@ export function HarnessStudio() {
               : autosaveStatus === "saving"
                 ? "Saving"
                 : autosaveStatus === "error"
-                  ? "Autosave error"
+                  ? "Not saved locally"
                   : "Saved locally"}
           </span>
         </div>
@@ -3127,6 +3162,7 @@ export function HarnessStudio() {
           </button>
           <input
             ref={projectInputRef}
+            data-testid="native-project-input"
             type="file"
             accept=".json,.wireform.json"
             hidden
@@ -3192,6 +3228,12 @@ export function HarnessStudio() {
               <strong>Harness images</strong>
               <small>Project documentation photos</small>
             </span>
+          </button>
+
+          <button className="harness-notes-button" onClick={() => setProjectFilesOpen(true)}
+            data-testid="open-project-files">
+            <Paperclip size={17} />
+            <span><strong>Project Files</strong><small>Internal engineering references</small></span>
           </button>
 
           <div className="component-palette">
@@ -5059,6 +5101,17 @@ export function HarnessStudio() {
           </div>
         )}
       </section>
+
+      {projectFilesOpen && (
+        <ProjectFilesDialog key={project.projectId}
+          attachments={project.attachments ?? []}
+          autosaveFailed={autosaveStatus === "error"}
+          onClose={() => setProjectFilesOpen(false)}
+          onChange={(mutate) => updateProject((draft) => {
+            draft.attachments = mutate(draft.attachments ?? []);
+          })}
+        />
+      )}
 
       {onshapeExportOpen && (
         <div

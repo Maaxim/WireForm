@@ -30,6 +30,8 @@ machine.
 - Project-wide plain-text harness notes with offline HTML report inclusion
 - Project-level Harness Images with embedded, normalized JPEG/PNG documentation
   photos in HTML and PDF reports
+- Project Files for original engineering-reference PDFs, spreadsheets, documents,
+  images, archives and arbitrary binaries embedded in the native project only
 - Hold and drag to select multiple components
 - Move, copy, paste, and delete a component selection
 - Undo and redo
@@ -249,6 +251,54 @@ remains standard and contains the two ordinary member wires, so WireViz YAML
 does not retain pair pitch or direction and WireViz import cannot reconstruct
 the relationship. Individual User Library wire templates likewise do not embed
 half of a project-level pair.
+
+## Project Files
+
+Choose **Project Files** in the left navigation to add internal engineering
+references. **Add Files** accepts multiple files; files can also be dropped into
+the dialog. Search by filename or description. Each file can be downloaded,
+renamed, described, replaced or deleted (with confirmation). Duplicate filenames
+are allowed; stable attachment IDs keep their contents separate.
+
+Original binary bytes, filenames and MIME types are stored as Base64 inside the
+native `.wireform.json` file. Images in Project Files are never resized or
+recompressed. Save/download the native project to move all references to another
+computer. Save As and project/history clones preserve them. Schema-4 projects
+without attachments continue loading normally; no schema-version migration is
+required. Use the current WireForm release when editing attachment-bearing
+projects, since older releases do not preserve this new optional collection.
+
+Upload limits are **10 MiB per file** and **50 MiB total original bytes** (shown as
+MB in the editor); Base64 adds roughly one third to the native JSON size. Existing
+valid over-limit files are preserved when opened, with warnings and options to
+download, remove or replace them. Malformed embedded data stops the load with a
+clear error instead of silently dropping files. Native project JSON may be up to
+180 million characters so attachments and existing Harness Images can coexist.
+
+Attachment-bearing projects autosave through the existing **IndexedDB** store,
+without a duplicate localStorage copy. An autosave failure displays **Not saved
+locally** and instructs you to download the native project; the previous good
+autosave remains intact. Small projects without attachments retain localStorage
+fallback support. Failed/corrupt recovery is left untouched until you explicitly
+open or start a project. Base64 is encoded once on upload; layout edits do not
+decode or re-encode reference files.
+
+PNG/JPEG/WebP previews use raster signatures, PDF previews use a restricted
+browser frame, and UTF-8 text/CSV previews render escaped plain text (capped at
+1 MiB). PDF support depends on the browser's sandboxed viewer; Download is always
+available. Office documents, ZIPs, SVG/HTML and unknown binaries are download-only.
+Nothing is evaluated as attachment code, and temporary Blob URLs are released.
+SHA-256 is stored and checked on download where browser Web Crypto is available.
+
+Project Files are separate from **Harness Images**: they never enter HTML/PDF
+reports, BOM CSV, Onshape CSV, WireViz YAML, diagrams, notes, or component User
+Libraries. Harness Images retain their existing report behavior. All file storage,
+previews and downloads are local; no external preview service or backend is used.
+
+Run `npm run test:project-files` for binary-integrity, management, preview,
+storage-failure and export-isolation tests. The optional
+`scripts/browser-project-files-smoke.mjs` drives an isolated local Chrome/CDP
+session for the complete UI/save/reload/download workflow.
 
 ## Onshape CSV export
 

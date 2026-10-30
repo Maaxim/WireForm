@@ -1,3 +1,5 @@
+import { normalizeProjectAttachments } from "./project-files.ts";
+
 export const PROJECT_SCHEMA_VERSION = 4 as const;
 export const PROJECT_FILE_FORMAT = "wireform-project";
 
@@ -31,6 +33,18 @@ export interface HarnessImage {
   caption?: string;
   width: number;
   height: number;
+}
+
+/** Original engineering reference files; native projects only, never reports. */
+export interface ProjectAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  data: string;
+  description?: string;
+  addedAt?: string;
+  sha256?: string;
 }
 
 export interface TerminationPart {
@@ -158,6 +172,7 @@ export interface HarnessProject {
   company: string;
   notes: string;
   harnessImages: HarnessImage[];
+  attachments?: ProjectAttachment[];
   components: HarnessComponent[];
   links: TopologyLink[];
   twistedPairs: TwistedPair[];
@@ -874,6 +889,9 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     company: textValue(rawProject.company, "", 500),
     notes: textValue(rawProject.notes, "", MAX_TEXT),
     harnessImages: normalizeHarnessImages(rawProject.harnessImages),
+    ...(rawProject.attachments !== undefined
+      ? { attachments: normalizeProjectAttachments(rawProject.attachments) }
+      : {}),
     components,
     links,
     twistedPairs,
@@ -887,8 +905,8 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
 }
 
 export function parseProjectFile(text: string): ParsedProjectFile {
-  if (text.length > 90_000_000) {
-    throw new Error("Project files must be smaller than 90 MB.");
+  if (text.length > 180_000_000) {
+    throw new Error("Native project files must be smaller than 180 MB.");
   }
   let value: unknown;
   try {
@@ -910,7 +928,13 @@ export function serializeProjectFile(project: HarnessProject) {
 }
 
 export function cloneProject(project: HarnessProject): HarnessProject {
-  return structuredClone(project);
+  // File data is immutable Base64 text. Share those strings across history
+  // snapshots instead of structured-cloning megabytes on every component drag.
+  const { attachments, ...rest } = project;
+  return {
+    ...structuredClone(rest),
+    ...(attachments ? { attachments: attachments.map((file) => ({ ...file })) } : {}),
+  };
 }
 
 export function remapTopologyLink(
