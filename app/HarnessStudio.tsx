@@ -59,7 +59,6 @@ import {
 } from "./bom";
 import {
   ONSHAPE_CSV_COLUMNS,
-  ONSHAPE_CSV_TARGET,
   buildOnshapeCableWireExport,
   onshapeCsvFilenameForTitle,
   onshapeExportHasErrors,
@@ -1089,9 +1088,6 @@ export function HarnessStudio() {
         .length,
       warnings: onshapeExport.issues.filter(
         (issue) => issue.severity === "warning",
-      ).length,
-      information: onshapeExport.issues.filter(
-        (issue) => issue.severity === "info",
       ).length,
     }),
     [onshapeExport],
@@ -2414,7 +2410,7 @@ export function HarnessStudio() {
     );
     setOnshapeExportOpen(false);
     setNotice(
-      `Onshape Cable/Wire Routing CSV downloaded with ${onshapeExport.rows.length} physical conductor row${
+      `Onshape CSV downloaded with ${onshapeExport.rows.length} physical conductor row${
         onshapeExport.rows.length === 1 ? "" : "s"
       }.`,
     );
@@ -3027,8 +3023,8 @@ export function HarnessStudio() {
           <button
             className="icon-button"
             onClick={openOnshapeExport}
-            aria-label="Export Onshape Cable/Wire Routing CSV"
-            title="Export native Onshape Cable/Wire Routing CSV"
+            aria-label="Export Onshape CSV"
+            title="Export Onshape CSV"
           >
             <Cable size={16} />
           </button>
@@ -5080,9 +5076,8 @@ export function HarnessStudio() {
           >
             <div className="modal-header">
               <div>
-                <span className="eyebrow">Native browser export</span>
                 <h2 id="onshape-export-title">
-                  Onshape Cable/Wire Routing CSV
+                  Onshape CSV Export
                 </h2>
               </div>
               <button
@@ -5096,7 +5091,7 @@ export function HarnessStudio() {
             <div className="import-summary onshape-export-summary">
               <div>
                 <strong>{onshapeExport.totals.candidates}</strong>
-                <span>conductors</span>
+                <span>physical conductors</span>
               </div>
               <div>
                 <strong>{onshapeExport.totals.exported}</strong>
@@ -5116,20 +5111,6 @@ export function HarnessStudio() {
               </div>
             </div>
             <div className="modal-body onshape-export-body">
-              <p>
-                Target: <strong>{ONSHAPE_CSV_TARGET.name}</strong>. Import the
-                downloaded CSV as a document tab in Onshape, then select that
-                tab in the Cable/Wire Routing feature. Live import compatibility
-                was not verified in this environment.
-              </p>
-              <p>
-                The CSV includes all 13 columns, with connector part numbers,
-                per-end contact MPNs, and strip lengths in millimeters where
-                assigned. Select the columns you need in Onshape. The preview
-                shows the seven routing fields; the download also contains the
-                six manufacturing fields.
-              </p>
-
               <section className="onshape-kind-summary" aria-label="Conductor counts">
                 {(
                   [
@@ -5218,8 +5199,7 @@ export function HarnessStudio() {
                       }
                     />
                     <span>
-                      I understand the listed compatibility warnings and any
-                      omitted data in this conductor-only CSV.
+                      I understand the listed data omissions.
                     </span>
                   </label>
                 )}
@@ -5241,7 +5221,7 @@ export function HarnessStudio() {
                 }
               >
                 <Download size={15} />
-                Download CSV
+                Export CSV
               </button>
             </div>
           </section>

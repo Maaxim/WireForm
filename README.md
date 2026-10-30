@@ -252,7 +252,7 @@ half of a project-level pair.
 
 ## Onshape CSV export
 
-Choose **Export Onshape Cable/Wire Routing CSV** in the top bar, review the
+Choose **Export Onshape CSV** in the top bar, review the
 conductor counts and validation messages, and download the CSV. Import it as an
 Onshape document tab and select the columns needed by Cable/Wire Routing.
 WireForm produces one comprehensive file with these 13 columns:
@@ -280,10 +280,12 @@ compact; every download includes all 13 columns. The four contact/strip-length
 fields are additional manufacturing metadata; WireForm does not claim that
 Onshape consumes them for routing. There are no export modes or separate files.
 
-Shield rows remain excluded with a warning, and twisted-pair metadata is omitted
-while its physical conductors export normally. Live import of WireForm-generated
-CSV into Onshape remains unverified. See [the exporter handoff](ONSHAPE_EXPORT_HANDOFF.md)
-for compatibility evidence and remaining limitations.
+Connected shield terminations remain excluded with a factual warning, and
+twisted-pair member conductors export normally. Invalid project data remains
+visible in the export dialog and blocks download when it would produce an
+invalid CSV. The user has verified the exporter with Onshape. See
+[the exporter handoff](ONSHAPE_EXPORT_HANDOFF.md) for the mapping and validation
+contract.
 
 ## Local development
 

@@ -1,16 +1,16 @@
 # WireForm → Onshape Cable/Wire Routing CSV Export — Implementation Handoff
 
 **Prepared:** 2026-10-27  
-**Target:** WireForm current checkout (including local, not-yet-pushed modifications)  
-**Status:** Implemented; extended to one comprehensive 13-column CSV on 2026-10-28.
+**Target:** `maxim/new_features`
+**Status:** Implemented and verified with Onshape, confirmed by the user on 2026-10-30.
 
-**Phase:** 1 — local, one-way, conductor-level CSV export.
+**Roadmap:** Phase 1 completed and verified; Phases 2–5 cancelled; Phase 6 (importing Onshape-calculated wire lengths) remains a potential future feature.
 
-> **Codex: Read this entire file, inspect the current checkout, and implement Phase 1.** The checkout is the authority for internal code structure. Do not assume its implementation matches the public WireForm repository. The Onshape CSV contract MUST be validated against the current installed/published Cable/Wire Routing FeatureScript or a known-working current example before declaring real Onshape compatibility.
+This document records the completed exporter, its technical contract and verification history. Development-phase information stays in internal documentation and is not presented in the export UI.
 
 ## 1. Outcome
 
-Add **Export → Onshape Cable/Wire Routing CSV** (wording may follow the current export menu) to WireForm.
+WireForm provides **Export → Onshape CSV** in the existing export toolbar.
 
 Users should be able to obtain a deterministic CSV from their electrical connectivity model, upload that CSV into an Onshape document, and select it through Neil Cooke's Cable/Wire Routing **Wire data** feature to define conductors for 3D routing.
 
@@ -56,7 +56,7 @@ An independently published wiring tutorial explicitly lists these seven case-sen
 
 Source: https://sites.google.com/nicholsschool.org/emrknowledgebase/shared-resources/skills/mechanical/cadcam/wiring-cad
 
-**Important:** This header set is a *documented legacy/basic example*, not proof that it covers every required/optional field in the latest FeatureScript. Header **spelling is evidenced; the precise current parser and allowed values still need inspection**.
+This is the historical basic-header example. The completed WireForm exporter uses the 13-column contract in §5, verified by the user with Onshape.
 
 The Onshape FeatureScript documentation confirms that uploaded external CSV files must be Onshape document tabs to be referenced by FeatureScript:
 
@@ -68,22 +68,19 @@ https://forum.onshape.com/discussion/18756/custom-feature-cable-wire-routing/p8
 
 **Color syntax resolved (2026-10-28):** The user verified the 1.217 demonstration video at https://onshape.wistia.com/medias/drjqloy1cv and supplied its confirmed CSV syntax. Full English names are accepted, and two colors can be separated by `/`, `-`, `_`, or `+`. Examples demonstrated include `green/yellow`, `GN+yellow`, `VIWH`, `violet-WH`, `dark_red`, and `LT BL`. Dark/light modifiers and IEC 60757 / DIN/VDE aliases are supported. CSV import supports bi-color wires even though the manual wire-route selector currently offers a single color.
 
-WireForm exports **lowercase full English names**, using `primary-color/secondary-color` for bi-colors. For example `BUWH` → `blue/white`, `WHBU` → `white/blue`, and WireForm `VTWH` → `violet/white`. This avoids assuming that Onshape aliases (such as `VI`) match WireForm/WireViz aliases (such as `VT`). This evidence is the user's video verification; an actual import of WireForm-generated CSV has **not** been performed.
+WireForm exports **lowercase full English names**, using `primary-color/secondary-color` for bi-colors. For example `BUWH` → `blue/white`, `WHBU` → `white/blue`, and WireForm `VTWH` → `violet/white`. This avoids assuming that Onshape aliases (such as `VI`) match WireForm/WireViz aliases (such as `VT`). The user verified the video syntax and subsequently confirmed successful operation of the implemented exporter with Onshape on 2026-10-30.
 
 **Additional columns confirmed by the user (2026-10-28):** Cable/Wire Routing can import CSV containing additional columns and select only the columns it needs. The current exporter always produces the single 13-column schema in §5, including optional connector/contact MPNs and strip lengths. No routing-only profile, mode, selector, or separate manufacturing file is provided. This confirmation does not establish that Onshape consumes the contact/strip-length columns for routing.
 
-### 2.2 NOT verified — do not guess
+### 2.2 Completed verification
 
-The author of this handoff could not directly inspect the current FeatureScript source/parser through the public web view or execute an authenticated Onshape import. The following remain **unverified**:
+The user confirmed that the completed native exporter works successfully with Onshape. This supersedes the earlier development-time compatibility notices and pending research gates.
 
-- Exact current-parser defaults and case handling; additional-column selection is confirmed by the user above. The exporter uses the requested 13-column schema in §5.
-- The accepted representations for `Gauge` (e.g. `24`, `24 AWG`, `0.5 mm²`) and missing values.
-- Acceptance of every extended WireForm palette name by the installed target version; the full-name/slash syntax itself is resolved above. Direct compatibility of WireForm abbreviations is not assumed or required.
-- Which of `Diameter`, `Area`, `Insulation`, and bend-radius fields are optional and their **exact headings/units**.
-- Whether a CSV can express explicit multicore cable grouping, shield endpoints, or twisted-pair metadata in the target feature version.
-- Whether a tested Onshape instance accepts an automatically generated WireForm CSV without modification.
+- The 13-column CSV, physical endpoint mapping, stable identities and current color/gauge conversion are established feature behavior.
+- Automated tests continue to validate mapping, ordering, escaping, metadata association and invalid-input handling.
+- Verification attribution is the user's Onshape test; the agent's local checks cover code, generated CSV and build/test behavior.
 
-**Mandatory research gate:** Inspect the current public FeatureScript document's `Wire data` parser and example CSV if accessible. Record the precise FeatureScript version, accepted headings, units, color encoding, and evidence in section 14 below. Alternatively obtain an actually imported, known-working current fixture. Do not infer accepted syntax from marketing descriptions or older tutorials alone. If inaccessible, implement the conservatively evidenced basic profile and state clearly that live compatibility remains **unverified**. Do not claim a successful Onshape import without performing it.
+No verification acknowledgement is required for ordinary valid exports. Warnings remain for actual excluded shield connections and invalid optional strip lengths; data-integrity errors still block download.
 
 ## 3. WireForm context: implemented features to preserve
 
@@ -114,9 +111,9 @@ Treat the local checkout as truth. Relevant existing functionality in the user's
 | Wire/conductor color | `Color` | Use verified Onshape color mapping; never drop the stripe silently. |
 | Wire/conductor label or signal | Not an extra column in Phase 1 | Retain internally only for error context. |
 | Bundle conductor length override | Not exported | Routing length and manufacturing cut length are different. |
-| Twisted-pair ID/pitch/direction | Not exported | Export member wires normally; issue informational limitation when relevant. |
-| Cable shield | Excluded initially | Explicit omission warning per affected shield. |
-| Dedicated connector shield endpoint | Excluded initially unless explicitly verified in Onshape | Never replace with fake pin `0`, `-1`, or `SHIELD`. |
+| Twisted-pair ID/pitch/direction | Outside the CSV contract | Export member wires normally, without a feature-gap notice. |
+| Cable shield | No shield rows | Warn about connected shield terminations excluded from the CSV. Floating shield metadata needs no warning. |
+| Dedicated connector shield endpoint | Outside numbered-pin routing rows | Preserve the genuine non-pin endpoint error; never use fake pin `0`, `-1`, or `SHIELD`. |
 | Connector primary MPNs | `From Part No` / `To Part No` | Resolve by endpoint connector ID; preserve formatting. |
 | Per-end contact MPNs | `From Contact PN` / `To Contact PN` | Only `contact.mpn` from the exact conductor-end topology link. |
 | Per-end strip lengths | `From Strip Length (mm)` / `To Strip Length (mm)` | Convert each endpoint separately to numeric millimeters; no suffix. |
@@ -144,7 +141,7 @@ Illustrative labels (`W1-01`, `W1-02`) are **not sufficient** if `01/02` refer t
 
 ### Gauge / wire geometry
 
-Use source AWG if present; format according to verified Onshape syntax. Reject or warn for unsupported gauge systems rather than guess. **Do not infer insulated outer diameter from AWG alone.** Optional `Diameter`/`Insulation`/`Area`/bend-radius export belongs to Phase 2 unless parser and underlying authoritative data are both verified.
+Use the established source-AWG conversion to bare AWG designations. Reject unsupported gauge systems rather than guess. **Do not infer insulated outer diameter from AWG alone.** Diameter, area, insulation and bend-radius columns are outside the established CSV contract; their former roadmap phases are cancelled.
 
 ### Color
 
@@ -152,10 +149,10 @@ Implement `toOnshapeWireColor(...)` as a pure tested mapping, using the current 
 
 - Supported solid color → exact verified target representation.
 - Supported bi-color → exact verified target representation.
-- Unrecognized / unverified encoding → **explicit blocking error for that row** or a clearly marked unsupported condition; **never downgrade `OGWH` to `OG`**.
+- Unrecognized or malformed source encoding → **explicit blocking error for that row**; **never downgrade `OGWH` to `OG`**.
 - Do not fill unknown color with a guessed default.
 
-The 1.217 video verification supplied by the user resolves the two-color syntax gate. Use the existing authoritative WireForm parser to resolve both colors and export lowercase English names separated by `/`, preserving their order. The local CAT5e conversion test may now pass; end-to-end Onshape import remains a separate verification step.
+The user confirmed the two-color video syntax and successful Onshape operation. Use the existing authoritative WireForm parser to resolve both colors and export lowercase English names separated by `/`, preserving their order.
 
 ## 5. Comprehensive Onshape CSV schema
 
@@ -165,7 +162,7 @@ The exporter always emits exactly these 13 headers, in this order:
 Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
 ```
 
-Illustrative data (NOT verified as successfully imported by current Onshape):
+Illustrative data using the verified CSV contract:
 
 ```csv
 Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
@@ -229,12 +226,13 @@ Adapt to actual repository conventions; these are conceptual, not mandatory API 
 | One-ended / open wire | Exclude; report explicit warning or error, clearly counted. |
 | More than two endpoints / multidrop | Do not invent pairwise connections; exclude/error unless supported mapping verified. |
 | Missing gauge | Follow verified target requirements; warn/error, never invent AWG. |
-| Invalid/unverified color mapping | Error for impacted row; no silent substitution. |
+| Invalid color mapping | Error for impacted row; no silent substitution. |
 | Missing connector/contact MPN or strip length | Empty optional field; does not block a valid routing row. |
 | Invalid strip length | Empty optional field with an explicit warning; does not block a valid routing row. |
-| Cable shield defined or connected | Omit and warn; show count. |
+| Cable shield connected | Preserve the exclusion and show a factual omission warning. |
+| Cable shield floating | No external connection is lost; no warning is needed. |
 | Dedicated connector shield endpoint | Not a normal pin; omit affected unsupported edge with clear warning. |
-| Twisted pair | Keep member rows; show informational note that TP metadata was not exported. |
+| Twisted pair | Keep member rows; no notice for metadata outside the established CSV contract. |
 | Unsupported physical-length metadata | Do not include silently as routing length. |
 
 Default UX: **disable export when any fatal errors exist**. Warnings for deliberate known omissions (e.g. shields) should be visible, with an explicit acknowledgement if exporting a partial model. Clearly show candidate count, exported count, excluded count, and shield omission count. Never label an incomplete file "all wires exported".
@@ -282,7 +280,7 @@ Do not introduce a new app backend, Python, spreadsheet framework, or cloud depe
 
 ## 8. Export UI
 
-Add a native entry, preferably **Export → Onshape Cable/Wire Routing CSV**.
+The native entry is **Export → Onshape CSV**. The compact dialog retains conductor counts, CSV preview and real validation results, without development status, verification notices or roadmap text.
 
 The confirmation/preview UI should show at least:
 
@@ -341,7 +339,7 @@ Gauge: 24 AWG (if that is the real source specification)
 Optional shield: present and connected, but omitted with warning
 ```
 
-**Expected:** exactly eight conductor rows, with their actual physical pins and colors `orange/white`, `orange`, `green/white`, `blue`, `blue/white`, `green`, `brown/white`, `brown`. The shield is omitted with a warning. Color syntax is resolved; a successful live Onshape import is still required for end-to-end compatibility.
+**Expected:** exactly eight conductor rows, with their actual physical pins and colors `orange/white`, `orange`, `green/white`, `blue`, `blue/white`, `green`, `brown/white`, `brown`. Connected shield terminations are omitted with a factual warning. The user confirmed successful exporter operation with Onshape.
 
 Use a second fixture with a bundle containing per-wire length overrides to prove those overrides do not leak into Phase 1 CSV or disturb row identities.
 
@@ -353,7 +351,7 @@ Use a second fixture with a bundle containing per-wire length overrides to prove
 - Download produces `.csv` and valid contents.
 - Existing export actions still work.
 
-### Acceptance / live smoke test
+### Repeatable Onshape smoke-test procedure
 
 1. Import the generated CSV as a tab in an Onshape document.
 2. Select it via the Cable/Wire Routing `Wire data` custom feature.
@@ -363,7 +361,7 @@ Use a second fixture with a bundle containing per-wire length overrides to prove
 6. Create at least one 3D route, then revise and re-import the same CSV while retaining identities.
 7. Record target FeatureScript version and results in section 14.
 
-If no Onshape account/session or current FeatureScript source is accessible to Codex, do **not** claim steps 1–7 were completed. Mark live import **NOT VERIFIED** and state what was tested locally.
+The user confirmed successful Onshape verification on 2026-10-30. The procedure remains useful for future regression checks; only record individual steps or target versions when evidence is available.
 
 ## 10. Coding and delivery rules
 
@@ -388,14 +386,12 @@ Do not add these to the Phase 1 CSV without verified support:
 - Onshape REST API calls, authentication or background sync.
 - Modifications to WireViz YAML, BOM, HTML/PDF reports or electrical topology.
 
-## 12. Candidate Phase 2 work (not part of current implementation)
+## 12. Revised internal roadmap (2026-10-30)
 
-- Optional verified geometry columns: insulated wire OD, area, insulation thickness, minimum bend radius.
-- Explicit, tested multi-conductor cable grouping if Onshape parser supports it.
-- Mapping dedicated shield terminations to real Onshape connector shell attachment geometry.
-- Configurable Onshape connector pin naming/alias mapping.
-- Importing Onshape 3D routed lengths for comparison with WireForm-approved cut lengths (never silent overwrite).
-- Continue using one comprehensive export; profiles, compatibility modes and separate files are out of scope.
+- **Phase 1: COMPLETED AND VERIFIED** by the user with Onshape. Maintain the current single comprehensive exporter as an ordinary native feature.
+- **Phases 2–5: CANCELLED.** Former geometry, grouping, shield-extension and other export-roadmap ideas are no longer planned.
+- **Phase 6: Potential future development.** Import Onshape-calculated 3D routing lengths for review/comparison with WireForm-approved lengths. No implementation, controls or coming-soon UI are included now.
+- The internal roadmap is not displayed in the export workflow. No profiles, compatibility modes or separate files are introduced.
 
 ## 13. Completion checklist
 
@@ -421,16 +417,16 @@ Do not add these to the Phase 1 CSV without verified support:
 | Existing topology resolver reused | `resolvePhysicalConnections(...)` from `app/connection-topology.ts`, including the same deterministic endpoint normalization used by Connection Mapping. No SVG, diagram-label or report parsing is used. |
 | Stable conductor ID scheme | Each Wire ID is derived only from persistent component ID + persistent conductor ID using an unambiguous safe encoding. Array indexes are not identities. Duplicate generated IDs are fatal and all colliding rows are excluded. |
 | FeatureScript document and pinned version inspected | Public document URL was requested on 2026-10-28, but returned only the Onshape sign-in application shell (`clientPackageVersion 1.222.1792700711272`). The anonymous API request returned HTTP 401, so the current FeatureScript source/parser and its pinned feature version could not be inspected. The public development thread reports release 1.221 on 2026-10-06 and two-color support in 1.217.0, but does not publish the CSV value grammar. |
-| CSV headers and optional fields confirmed from parser | Parser source **NOT VERIFIED**. User confirmed additional-column selection; the single export now always emits the 13-column schema in §5, with primary connector MPNs, exact per-end contact MPNs and strip lengths in mm. Optional routing-geometry fields are not emitted. |
-| Exact AWG/gauge encoding | Current parser **NOT VERIFIED**. The implementation conservatively accepts only explicit AWG forms (`24 AWG`, `AWG 24`, `24`, and `1/0` through `4/0`) and emits the bare designation in `Gauge`; metric/unknown values are fatal. Every export carries an acknowledgement-required compatibility warning that this encoding was not live-import verified. No diameter/area is inferred. |
+| CSV headers and optional fields | User confirmed successful exporter operation with Onshape on 2026-10-30 and additional-column selection. The single export always emits the 13-column schema in §5, including primary connector MPNs, exact per-end contact MPNs and strip lengths in mm. |
+| Exact AWG/gauge encoding | The established conversion accepts explicit AWG forms (`24 AWG`, `AWG 24`, `24`, and `1/0` through `4/0`) and emits the bare designation in `Gauge`; metric/unknown values remain fatal. No diameter/area is inferred, and no compatibility disclaimer is emitted. |
 | Exact solid-color encoding | **Syntax resolved:** official guidance and the user's 1.217 video verification confirm full English names. Supported WireForm codes are resolved by `parseWireColor(...)` and exported in lowercase (for example `RD` → `red`, `VT` → `violet`). No Onshape abbreviation assumptions or project-data changes are needed. |
-| Exact striped/two-color encoding | **RESOLVED** by the user's 1.217 video verification. Export convention: `primary-color/secondary-color` using lowercase full English names, for example `GNYE` → `green/yellow`, `BUWH` → `blue/white`, `WHBU` → `white/blue`. Both colors come from the authoritative WireForm parser; unsupported/missing source codes remain fatal. The previous `UNVERIFIED_BICOLOR_ENCODING` blocker is removed. Actual Onshape import is still **NOT VERIFIED**. |
-| Unit rules for optional physical geometry | Not emitted; Phase 2 as planned. |
+| Exact striped/two-color encoding | **RESOLVED** by the user's 1.217 video verification and subsequent Onshape verification. Export convention: `primary-color/secondary-color` using lowercase full English names, for example `GNYE` → `green/yellow`, `BUWH` → `blue/white`, `WHBU` → `white/blue`. Both colors come from the authoritative WireForm parser; unsupported/missing source codes remain fatal. |
+| Unit rules for optional physical geometry | Outside the current CSV contract; Phases 2–5 are cancelled. |
 | Local unit tests | Initial exporter suite passed (263 repository tests). Color update adds explicit solid and ordered bi-color mappings, unsupported-code errors, identical conversion for standalone/bundle/multicore conductors, no mutation, exact escaped final CSV, and the complete eight-row striped CAT5e fixture. Updated results are recorded below. |
 | Typecheck/build | `npm run typecheck` passed; `npm run lint` passed; `npm run build` passed; `npm test` passed (results recorded 2026-10-28). |
-| Real Onshape CSV import test | **NOT VERIFIED** — no authenticated Onshape document/session or current FeatureScript source was available. The UI states this and requires warning acknowledgement before download. |
-| Known exclusions / warnings | Shields are counted and warned but never become fake conductor rows. TP membership is informational and does not create columns. Open/unresolved/multidrop/non-pin endpoints, missing stable IDs, invalid/missing gauge/color and duplicate Wire IDs are fatal. Supported bi-colors export normally. Wire cut lengths, conductor overrides, seals/tooling/notes, BOM fields, routing geometry and 3D data are absent. Missing optional manufacturing values remain empty; invalid strip values warn. Gauge and live-import verification remain pending. |
-| Any deviations from this plan | The current checkout has an export toolbar rather than a dropdown, so the native entry was added beside the existing BOM/HTML/PDF exports. The user's 1.217 video verification resolves the color research gate; no further color-syntax research is required for this implementation. Current-parser/gauge and live-import limitations remain documented. |
+| Real Onshape CSV import verification | **COMPLETED AND VERIFIED**, as confirmed by the user on 2026-10-30. This is user-provided verification, separate from the agent's automated test runs. |
+| Exclusions / warnings | Connected shield terminations are excluded with a factual warning; floating shields and TP metadata need no feature-gap notices. Open/unresolved/multidrop/non-pin endpoints, missing stable IDs, invalid/missing gauge/color and duplicate Wire IDs remain fatal. Wire cut lengths, conductor overrides, seals/tooling/notes, BOM fields, routing geometry and 3D data remain outside the CSV contract. Missing optional manufacturing values remain empty; invalid strip values warn. |
+| UI integration | The native export toolbar entry sits beside BOM/HTML/PDF exports. The compact dialog provides preview, counts, genuine errors and omission warnings. Development/verification state is not displayed. |
 
 ### Commands and results (2026-10-28)
 
@@ -447,7 +443,7 @@ Do not add these to the Phase 1 CSV without verified support:
 - Implementation: `convertColorForOnshape(...)` uses `parseWireColor(...)` and the existing palette names, lowercases each resolved name, and joins primary/secondary names with `/`. No independent code splitting, alias translation, secondary-color loss, or schema/model mutation occurs.
 - The same converter remains in the shared export-row path for standalone wires, bundle conductors, and multicore cable conductors. Unsupported codes retain the existing fatal error policy.
 - Verification results: `node --experimental-strip-types --test tests/onshape-export.test.mjs` passed (25 tests/subtests); `npm run lint` and `npm run typecheck` passed; `npm test` passed (267 tests, 0 failures), including the production build. These supersede the initial implementation counts above.
-- Remaining limitations: actual CSV import/routing in Onshape is **NOT VERIFIED**; current Gauge grammar and full current-parser/header behavior remain unverified. Shields and TP metadata retain the Phase 1 omission policy.
+- Subsequent verification: the user confirmed successful exporter operation with Onshape on 2026-10-30. The established CSV mappings and omissions remain documented above.
 
 ### Per-end manufacturing metadata extension (2026-10-28)
 
@@ -458,7 +454,16 @@ Do not add these to the Phase 1 CSV without verified support:
 - Missing optional values remain empty and do not block export. Invalid strip lengths are omitted with a warning, preserving valid routing rows. Numbered pins, Wire IDs, color conversion, shields and TP handling are unchanged.
 - Header-order decision: the user's explicit 13-column sequence takes priority over the previous implementation's `To Ref`/`From Pin` ordering. No field values are remapped positionally.
 - Verification: focused Onshape exporter, Connection Mapping and hover suites passed (52 tests/subtests). `npm run lint` and `npm run typecheck` passed. `npm test` passed (276 tests, 0 failures), including the production build. Regression coverage includes reversed endpoints with different connector/contact MPNs and strips; all conductor types; distinct cavity contacts; no metadata inference; millimeter conversions/precision; 13-field counts and order; optional blanks; Unicode/quote/comma/newline escaping; byte-identical exports and no project mutation. The production build retains its existing large-chunk advisory.
-- Actual Onshape import is still **NOT VERIFIED**. The user confirmed unused-column selection; this does not prove the routing feature consumes the four contact/strip columns.
+- Subsequent verification: the user confirmed successful exporter operation with Onshape on 2026-10-30. The four contact/strip columns remain available manufacturing metadata, without a claim that routing consumes them.
+
+### Completed-feature UI cleanup (2026-10-30)
+
+- Verification evidence: the user confirmed Phase 1 is completed and verified with Onshape. Phases 2–5 are cancelled; Phase 6 is an internal future possibility only, as recorded in §12.
+- Removed unconditional compatibility notices, runtime verification flags, phase wording and unnecessary metadata-gap notices from the export issue source and dialog. A valid export has no development warning or acknowledgement requirement.
+- Connected shield exclusions still produce concise factual warnings. Floating shield metadata and omitted TP metadata do not remove ordinary conductor connectivity and generate no notices. `totals.omittedShields` still counts shield definitions; the row and CSV generation are unchanged.
+- Genuine topology/reference/pin/identity/gauge/color errors, duplicate-ID detection, empty-project errors and invalid-strip warnings retain their behavior. Existing download gating and omission acknowledgement remain for actual warnings.
+- Recorded a representative pre-cleanup CSV SHA-256 digest from commit `2b30d20`; regression tests assert the generated UTF-8/CRLF bytes are unchanged, including part numbers, contacts, strips and ordered bi-colors.
+- Verification results: focused Onshape exporter/UI regression suite passed (37 tests/subtests), including the pre-cleanup CSV byte fingerprint; `npm run lint` and `npm run typecheck` passed; `npm test` passed (279 tests, 0 failures), including the production build. No browser-driven or new Onshape import test was performed during this presentation-only cleanup.
 
 ## 15. External references (ordered by direct relevance)
 

@@ -13,16 +13,6 @@ import { parseWireColor } from "./wire-colors.ts";
 import { parseLengthMillimeters } from "./length.ts";
 import { isValidStripLength } from "./termination.ts";
 
-/**
- * One comprehensive CSV for Cable/Wire Routing. The user confirmed additional
- * columns can be imported and selected as needed. Live import remains untested.
- */
-export const ONSHAPE_CSV_TARGET = {
-  name: "Neil Cooke Cable/Wire Routing",
-  liveImportVerified: false,
-  bicolorEncodingVerified: true,
-} as const;
-
 export type OnshapeExportIssueSeverity = "error" | "warning" | "info";
 
 export interface OnshapeExportIssue {
@@ -238,7 +228,7 @@ function endpointProblem(
     return issue(
       "error",
       "MULTIDROP_UNSUPPORTED",
-      `${label} is multi-drop; Phase 1 exports exactly one From and one To pin per conductor.`,
+      `${label} is multi-drop; the CSV requires exactly one From and one To pin per conductor.`,
       connection,
     );
   }
@@ -315,14 +305,7 @@ function endpointManufacturingData(
 export function buildOnshapeCableWireExport(
   project: HarnessProject,
 ): OnshapeExportResult {
-  const issues: OnshapeExportIssue[] = [
-    {
-      severity: "warning",
-      code: "LIVE_IMPORT_NOT_VERIFIED",
-      message:
-        "This CSV export and bare AWG Gauge encoding have not been verified by importing into the current Onshape FeatureScript in this environment.",
-    },
-  ];
+  const issues: OnshapeExportIssue[] = [];
   const components = new Map(
     project.components.map((component) => [component.id, component]),
   );
@@ -334,7 +317,6 @@ export function buildOnshapeCableWireExport(
     byKind[connection.conductor.kind].candidates += 1;
   }
 
-  const pairIds = new Set<string>();
   const candidates: CandidateRow[] = [];
   for (const connection of connections) {
     const label = componentMemberLabel(connection);
@@ -388,15 +370,6 @@ export function buildOnshapeCableWireExport(
           connection,
         ),
       );
-    }
-
-    if (connection.twistedPair && !pairIds.has(connection.twistedPair.id)) {
-      pairIds.add(connection.twistedPair.id);
-      issues.push({
-        severity: "info",
-        code: "TWISTED_PAIR_METADATA_OMITTED",
-        message: `${connection.twistedPair.designator} membership is not represented by the Phase 1 CSV columns; its member conductors remain independent rows.`,
-      });
     }
 
     issues.push(...rowIssues);
@@ -468,15 +441,12 @@ export function buildOnshapeCableWireExport(
     if (!CABLE_KINDS.includes(component.kind) || !component.shield) continue;
     omittedShields += 1;
     const terminations = shieldTerminationCount(project, component);
+    if (!terminations) continue;
     issues.push({
       severity: "warning",
       code: "SHIELD_OMITTED",
       designator: component.designator,
-      message: `${component.designator} shield is omitted because the CSV export has no shield row semantics${
-        terminations
-          ? ` (${terminations} shield termination${terminations === 1 ? "" : "s"} present)`
-          : ""
-      }.`,
+      message: `${component.designator}: ${terminations} shield connection${terminations === 1 ? " is" : "s are"} excluded from the CSV.`,
     });
   }
 

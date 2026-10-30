@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { buildBomRows } from "../app/bom.ts";
@@ -8,7 +9,6 @@ import {
 } from "../app/connection-mapping.ts";
 import {
   ONSHAPE_CSV_HEADERS,
-  ONSHAPE_CSV_TARGET,
   buildOnshapeCableWireExport,
   convertColorForOnshape,
   convertGaugeForOnshape,
@@ -153,6 +153,29 @@ test("standalone wire exports exactly once with physical pins, not pin labels", 
   });
   assert.equal(result.totals.byKind.wire.exported, 1);
   assert.equal(onshapeExportHasErrors(result), false);
+  assert.equal(onshapeExportHasWarnings(result), false);
+  assert.deepEqual(result.issues, []);
+});
+
+test("CSV bytes match the verified exporter before UI cleanup", () => {
+  const { project, j1, j2 } = completeProject("bundle", 2);
+  j1.mpn = "09 32,040 3001";
+  j2.mpn = "10142708-040021LF";
+  for (let index = 0; index < 2; index += 1) {
+    project.links[index * 2].termination = {
+      contact: { mpn: "09 33 000 6102" }, stripLength: "7.5 mm",
+    };
+    project.links[index * 2 + 1].termination = {
+      contact: { mpn: "10158070-121LF" }, stripLength: "5.7 mm",
+    };
+  }
+  project.components.find((component) => component.kind === "bundle").colors = ["BUWH", "WHBU"];
+  const csv = serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows);
+  // Captured from commit 2b30d20 before changing any UI or issue messages.
+  assert.equal(
+    createHash("sha256").update(csv, "utf8").digest("hex"),
+    "2a22fdbff703918d28416574f67528709bc4f2047177ce7df634342aaf5b86df",
+  );
 });
 
 test("bundle exports one row per conductor with stable IDs independent of array order", () => {
@@ -335,6 +358,7 @@ test("malformed optional strip lengths warn and leave blanks without blocking ro
     assert.equal(result.rows[0].fromStripLengthMm, "");
     assert.equal(onshapeExportHasErrors(result), false);
     assert.ok(issueCodes(result).has("INVALID_STRIP_LENGTH"));
+    assert.equal(result.issues.length, 1);
   }
 });
 
@@ -416,10 +440,36 @@ test("shield topology is omitted with warning and cannot create a fake numbered 
   assert.equal(result.totals.omittedShields, 1);
   assert.ok(issueCodes(result).has("SHIELD_OMITTED"));
   assert.equal(onshapeExportHasWarnings(result), true);
+  assert.equal(result.issues[0].message, "W1: 1 shield connection is excluded from the CSV.");
   assert.ok(result.rows.every((row) => row.fromPin !== "Shield" && row.toPin !== "Shield"));
 });
 
-test("twisted-pair members remain separate rows and add no invented CSV columns", () => {
+test("floating shield metadata does not add feature-gap warnings", () => {
+  const { project, cable } = completeProject("cable", 1);
+  cable.shield = true;
+  const result = buildOnshapeCableWireExport(project);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.totals.omittedShields, 1);
+  assert.deepEqual(result.issues, []);
+  assert.equal(onshapeExportHasWarnings(result), false);
+});
+
+test("both-end shield omissions remain factual actionable warnings", () => {
+  const { project, j1, j2, cable } = completeProject("cable", 1);
+  cable.shield = true;
+  link(project, "shield-from", j1, "pin:1", cable, "shield");
+  link(project, "shield-to", cable, "shield", j2, "pin:1");
+  const result = buildOnshapeCableWireExport(project);
+  assert.equal(result.rows.length, 1);
+  assert.deepEqual(result.issues, [{
+    severity: "warning",
+    code: "SHIELD_OMITTED",
+    designator: "W1",
+    message: "W1: 2 shield connections are excluded from the CSV.",
+  }]);
+});
+
+test("twisted-pair members export normally without feature-gap notices", () => {
   const project = createEmptyProject("Twisted pair export");
   const j1 = addConnector(project, "J1", 4);
   const j2 = addConnector(project, "J2", 4);
@@ -452,10 +502,7 @@ test("twisted-pair members remain separate rows and add no invented CSV columns"
   ];
   const result = buildOnshapeCableWireExport(project);
   assert.equal(result.rows.length, 4);
-  assert.equal(
-    result.issues.filter((candidate) => candidate.code === "TWISTED_PAIR_METADATA_OMITTED").length,
-    2,
-  );
+  assert.deepEqual(result.issues, []);
   assert.deepEqual(Object.keys(result.rows[0]), [
     "wireId",
     "fromRef",
@@ -484,8 +531,6 @@ const COLOR_CASES = [
 ];
 
 test("solid and ordered bicolor codes export lowercase English names", () => {
-  assert.equal(ONSHAPE_CSV_TARGET.bicolorEncodingVerified, true);
-  assert.equal(ONSHAPE_CSV_TARGET.liveImportVerified, false);
   for (const [code, name] of COLOR_CASES) {
     assert.deepEqual(convertColorForOnshape(code), { value: name });
   }
@@ -623,10 +668,26 @@ test("stable Wire IDs safely encode non-ASCII and separator characters", () => {
 
 test("editor exposes a local preview/download flow with fatal and warning gates", async () => {
   const source = await fs.readFile(new URL("../app/HarnessStudio.tsx", import.meta.url), "utf8");
-  assert.match(source, /Export Onshape Cable\/Wire Routing CSV/);
+  assert.match(source, /aria-label="Export Onshape CSV"/);
   assert.match(source, /buildOnshapeCableWireExport\(project\)/);
   assert.match(source, /serializeOnshapeCableWireCsv\(onshapeExport\.rows\)/);
   assert.match(source, /onshapeExportHasErrors\(onshapeExport\)/);
   assert.match(source, /onshapeWarningsAcknowledged/);
   assert.doesNotMatch(source, /onshape[^\n]{0,80}(fetch\(|oauth|authentication)/i);
+  const dialog = source.slice(
+    source.indexOf("{onshapeExportOpen && ("),
+    source.indexOf("{importCandidate && ("),
+  );
+  assert.match(dialog, /Onshape CSV Export/);
+  assert.match(dialog, /Export CSV/);
+  assert.match(dialog, /CSV preview/);
+  assert.match(dialog, /onshapeExport\.rows\.slice\(0, 25\)/);
+  assert.match(dialog, /ONSHAPE_CSV_COLUMNS\.slice\(0, 7\)/);
+  assert.match(dialog, /\{candidate\.message\}/);
+  assert.match(dialog, /onshapeExportHasErrors\(onshapeExport\)/);
+  assert.match(dialog, /onshapeExportHasWarnings\(onshapeExport\)/);
+  assert.doesNotMatch(
+    dialog,
+    /experimental|unverified|not verified|compatibility|phase\s*\d|planned|coming soon|not implemented|future/i,
+  );
 });
