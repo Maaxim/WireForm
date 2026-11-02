@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createEmptyProject, makeComponent, serializeProjectFile } from "../app/model.ts";
+import { verifyBulkLayout } from "./browser-property-bulk-layout.mjs";
 
 export async function runBulkPropertyChecks({ command, evaluate, click, setValue, key, openEditor, waitFor, saved, readProject, load, tab, flush, output, exceptions }) {
   const project = createEmptyProject("Bulk Property Editor verification");
@@ -36,6 +37,7 @@ export async function runBulkPropertyChecks({ command, evaluate, click, setValue
   const summary = () => evaluate(`document.querySelector('[data-testid="property-selection-summary"]').textContent`);
   const expectMpn = async (values) => { const current = await readProject(); for (const [id, value] of Object.entries(values)) assert.equal(node(current, id).mpn, value, id); };
   await openEditor();
+  await verifyBulkLayout({ command, evaluate, click, setValue, tab, flush, readProject, output });
   await evaluate(`window.bulkWrites=0;const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,k){if(k==='project-autosave')bulkWrites++;return put.apply(this,arguments)}`);
   await setValue('[aria-label="Filter column"]', "manufacturer"); await setValue('[aria-label="Filter value"]', "value:Amphenol");
   await click('[data-select-component="j2"]');

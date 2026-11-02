@@ -85,7 +85,10 @@ try {
   await command("Emulation.setDeviceMetricsOverride", { width: 1700, height: 1050, deviceScaleFactor: 1, mobile: false });
   await command("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: output });
   await saved(); await evaluate("window.confirm=()=>true");
-  if (process.argv.includes("--bulk")) {
+  if (process.argv.includes("--insulation")) {
+    const { runInsulationChecks } = await import("./browser-insulation-smoke.mjs");
+    await runInsulationChecks({ command, evaluate, click, setValue, key, openEditor, waitFor, saved, readProject, load, tab, flush, output, exceptions });
+  } else if (process.argv.includes("--bulk")) {
     const { runBulkPropertyChecks } = await import("./browser-property-bulk-smoke.mjs");
     await runBulkPropertyChecks({ command, evaluate, click, setValue, key, openEditor, waitFor, saved, readProject, load, tab, flush, output, exceptions });
   } else {

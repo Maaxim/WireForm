@@ -4,7 +4,7 @@ import { propertyColumns, resolvePropertyRow, type PropertyCategory, type Proper
 import { bulkPropertyColumns, createBulkPropertyTransaction, createFindReplaceTransaction, previewPropertyTransaction,
   textualProperty, validatePropertyPreview, type BulkFieldAction, type PropertyTransactionPreview } from "./property-transactions";
 import { WireColorEditor } from "./WireColorEditor";
-import { LengthValueEditor, WireGaugeEditor } from "./PropertyValueEditors";
+import { LengthValueEditor, NumberValueEditor, WireGaugeEditor } from "./PropertyValueEditors";
 
 export interface PropertyBulkSession {
   mode: "bulk" | "replace"; selected: readonly PropertyRowRef[]; filtered: readonly PropertyRowRef[];
@@ -81,20 +81,24 @@ export function PropertyBulkDialog({ project, category, session, onClose, onAppl
             const updateValue = (value: string) => setActions((previous) => ({ ...previous, [column.id]: { action: "set", value } }));
             const isBundleLength = category === "conductors" && column.id === "length" && resolved.every((row) => row.component.kind === "bundle");
             return <div className="property-bulk-field" key={column.id} data-bulk-property={column.id}>
-              <label>{column.title}<select aria-label={`Action for ${column.title}`} value={action.action} onChange={(event) => {
-                const mode = event.target.value;
-                const current = resolved.map((row) => String(column.get(row)));
-                const common = current.length && current.every((value) => value === current[0]) ? current[0] : column.editor === "color" ? "BK" : "";
-                setActions((previous) => ({ ...previous, [column.id]: mode === "set" ? { action: "set", value: common || "" } : { action: mode as "keep" | "clear" } }));
-              }}><option value="keep">Leave unchanged</option><option value="set">{isBundleLength ? "Set individual override" : "Set value"}</option>
-                <option value="clear" disabled={!clearAllowed}>{isBundleLength ? "Use bundle default" : "Clear value"}</option></select></label>
-              {action.action === "set" && <div className="property-bulk-value">
-                {column.editor === "color" ? <WireColorEditor code={value} onChange={updateValue} />
-                  : column.editor === "gauge" ? <WireGaugeEditor value={value} onChange={updateValue} />
-                  : column.editor === "length" ? <LengthValueEditor value={value} onChange={updateValue} />
-                  : column.editor === "multiline" ? <textarea aria-label={`New ${column.title}`} rows={3} value={value} onChange={(event) => updateValue(event.target.value)} />
-                  : <input aria-label={`New ${column.title}`} value={value} onChange={(event) => updateValue(event.target.value)} />}
-              </div>}
+              <label htmlFor={`bulk-action-${column.id}`}>{column.title}</label>
+              <div className="property-bulk-controls">
+                <select id={`bulk-action-${column.id}`} aria-label={`Action for ${column.title}`} value={action.action} onChange={(event) => {
+                  const mode = event.target.value;
+                  const current = resolved.map((row) => String(column.get(row)));
+                  const common = current.length && current.every((value) => value === current[0]) ? current[0] : column.editor === "color" ? "BK" : "";
+                  setActions((previous) => ({ ...previous, [column.id]: mode === "set" ? { action: "set", value: common || "" } : { action: mode as "keep" | "clear" } }));
+                }}><option value="keep">Leave unchanged</option><option value="set">{isBundleLength ? "Set individual override" : "Set value"}</option>
+                  <option value="clear" disabled={!clearAllowed}>{isBundleLength ? "Use bundle default" : "Clear value"}</option></select>
+                {action.action === "set" && <div className="property-bulk-value">
+                  {column.editor === "color" ? <WireColorEditor code={value} onChange={updateValue} />
+                    : column.editor === "gauge" ? <WireGaugeEditor value={value} onChange={updateValue} />
+                    : column.editor === "length" ? <LengthValueEditor value={value} onChange={updateValue} />
+                    : column.editor === "number" ? <NumberValueEditor value={value} onChange={updateValue} />
+                    : column.editor === "multiline" ? <textarea aria-label={`New ${column.title}`} rows={3} value={value} onChange={(event) => updateValue(event.target.value)} />
+                    : <input aria-label={`New ${column.title}`} value={value} onChange={(event) => updateValue(event.target.value)} />}
+                </div>}
+              </div>
               {action.action === "clear" && <small>{isBundleLength ? "Removes each individual override; it does not copy the current default." : "Removes the current value. The preview requires confirmation."}</small>}
             </div>;
           })}

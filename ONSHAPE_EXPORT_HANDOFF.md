@@ -56,7 +56,7 @@ An independently published wiring tutorial explicitly lists these seven case-sen
 
 Source: https://sites.google.com/nicholsschool.org/emrknowledgebase/shared-resources/skills/mechanical/cadcam/wiring-cad
 
-This is the historical basic-header example. The completed WireForm exporter uses the 13-column contract in §5, verified by the user with Onshape.
+This is the historical basic-header example. The current WireForm exporter uses the 14-column contract in §5: the previously verified thirteen columns plus the appended optional Insulation field.
 
 The Onshape FeatureScript documentation confirms that uploaded external CSV files must be Onshape document tabs to be referenced by FeatureScript:
 
@@ -70,13 +70,13 @@ https://forum.onshape.com/discussion/18756/custom-feature-cable-wire-routing/p8
 
 WireForm exports **lowercase full English names**, using `primary-color/secondary-color` for bi-colors. For example `BUWH` → `blue/white`, `WHBU` → `white/blue`, and WireForm `VTWH` → `violet/white`. This avoids assuming that Onshape aliases (such as `VI`) match WireForm/WireViz aliases (such as `VT`). The user verified the video syntax and subsequently confirmed successful operation of the implemented exporter with Onshape on 2026-10-30.
 
-**Additional columns confirmed by the user (2026-10-28):** Cable/Wire Routing can import CSV containing additional columns and select only the columns it needs. The current exporter always produces the single 13-column schema in §5, including optional connector/contact MPNs and strip lengths. No routing-only profile, mode, selector, or separate manufacturing file is provided. This confirmation does not establish that Onshape consumes the contact/strip-length columns for routing.
+**Additional columns confirmed by the user (2026-10-28):** Cable/Wire Routing can import CSV containing additional columns and select only the columns it needs. The current exporter always produces the single 14-column schema in §5, including optional connector/contact MPNs, strip lengths and conductor insulation thickness. No routing-only profile, mode, selector, or separate manufacturing file is provided. This confirmation does not establish that Onshape consumes the contact/strip-length columns for routing.
 
 ### 2.2 Completed verification
 
 The user confirmed that the completed native exporter works successfully with Onshape. This supersedes the earlier development-time compatibility notices and pending research gates.
 
-- The 13-column CSV, physical endpoint mapping, stable identities and current color/gauge conversion are established feature behavior.
+- The original thirteen columns, physical endpoint mapping, stable identities and current color/gauge conversion are established feature behavior. The optional Insulation column in §5 is appended without changing those fields.
 - Automated tests continue to validate mapping, ordering, escaping, metadata association and invalid-input handling.
 - Verification attribution is the user's Onshape test; the agent's local checks cover code, generated CSV and build/test behavior.
 
@@ -156,18 +156,18 @@ The user confirmed the two-color video syntax and successful Onshape operation. 
 
 ## 5. Comprehensive Onshape CSV schema
 
-The exporter always emits exactly these 13 headers, in this order:
+The exporter always emits exactly these 14 headers, in this order:
 
 ```csv
-Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm),Insulation
 ```
 
-Illustrative data using the verified CSV contract:
+Illustrative data using the current CSV contract:
 
 ```csv
-Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
-W1-01,J1,1,J2,1,14,red,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7
-W1-02,J1,2,J2,2,14,blue/white,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm),Insulation
+W1-01,J1,1,J2,1,14,red,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7,0.5
+W1-02,J1,2,J2,2,14,blue/white,09 32 040 3001,10142708-040021LF,09 33 000 6102,10158070-121LF,7.5,5.7,0.5
 ```
 
 Illustrative Wire IDs above are shortened for readability; actual existing persistent Wire ID formatting is unchanged. The original implementation placed `To Ref` before `From Pin`; the explicit 13-column sequence and examples in the current user specification take precedence, placing each connector ref directly beside its pin. Field names and values remain unchanged.
@@ -176,13 +176,15 @@ The six added fields are optional. Connector part numbers use only the connector
 
 Strip lengths come from that endpoint's `termination.stripLength`. Supported existing units are converted to millimeters with exact decimal arithmetic; no unit symbol or locale decimal comma is emitted, and meaningful precision is not rounded away. Missing metadata produces empty cells, never `0`, `undefined`, `null`, or a placeholder. Invalid optional strip lengths produce an omission warning and an empty cell; valid routing rows remain exportable.
 
+`Insulation` is appended after those original thirteen fields. It is the optional numeric `insulationThicknessMm` on a standalone wire or the parent bundle/cable, resolved by stable physical conductor identity. It means radial conductor insulation, not overall diameter, jacket or covering thickness. Missing values export empty; explicit zero exports `0`. Finite nonnegative values use plain decimal millimeters without a suffix or locale separator. Configure the Onshape field mapping for millimeters. Invalid raw measurements are export errors; no default is inferred from AWG. The compact preview includes this final field. Other manufacturing outputs and standard WireViz YAML omit it.
+
 Onshape can select the columns it needs and ignore others, as confirmed by the user. Contact/strip fields are available manufacturing metadata; their use by the routing feature is not claimed. There is one comprehensive export and no mode or profile selection.
 
 **CSV serialization requirements:**
 
 - Comma delimiter; RFC-4180-style quoting (`"` doubled inside quoted fields), including commas, quotes, and newlines.
 - UTF-8; use stable CRLF records for broad CSV compatibility, unless the verified target fixture says otherwise.
-- A single header row and exactly 13 fields per data row, including empty optional fields. One centralized column definition controls headers, serialization and routing preview order.
+- A single header row and exactly 14 fields per data row, including empty optional fields. One centralized column definition controls headers, serialization and routing preview order.
 - No locale-dependent decimal commas; numeric values expressed in documented units.
 - Stable row order: natural order of wire/bundle designators with stable conductor identity tie-breakers.
 - Stable filename derived from existing project metadata (sanitize filesystem-unsafe characters).
@@ -417,7 +419,7 @@ Do not add these to the Phase 1 CSV without verified support:
 | Existing topology resolver reused | `resolvePhysicalConnections(...)` from `app/connection-topology.ts`, including the same deterministic endpoint normalization used by Connection Mapping. No SVG, diagram-label or report parsing is used. |
 | Stable conductor ID scheme | Each Wire ID is derived only from persistent component ID + persistent conductor ID using an unambiguous safe encoding. Array indexes are not identities. Duplicate generated IDs are fatal and all colliding rows are excluded. |
 | FeatureScript document and pinned version inspected | Public document URL was requested on 2026-10-28, but returned only the Onshape sign-in application shell (`clientPackageVersion 1.222.1792700711272`). The anonymous API request returned HTTP 401, so the current FeatureScript source/parser and its pinned feature version could not be inspected. The public development thread reports release 1.221 on 2026-10-06 and two-color support in 1.217.0, but does not publish the CSV value grammar. |
-| CSV headers and optional fields | User confirmed successful exporter operation with Onshape on 2026-10-30 and additional-column selection. The single export always emits the 13-column schema in §5, including primary connector MPNs, exact per-end contact MPNs and strip lengths in mm. |
+| CSV headers and optional fields | User confirmed successful exporter operation with Onshape on 2026-10-30 and additional-column selection. The single export now emits the 14-column schema in §5, preserving those original fields and appending optional radial conductor Insulation in mm. |
 | Exact AWG/gauge encoding | The established conversion accepts explicit AWG forms (`24 AWG`, `AWG 24`, `24`, and `1/0` through `4/0`) and emits the bare designation in `Gauge`; metric/unknown values remain fatal. No diameter/area is inferred, and no compatibility disclaimer is emitted. |
 | Exact solid-color encoding | **Syntax resolved:** official guidance and the user's 1.217 video verification confirm full English names. Supported WireForm codes are resolved by `parseWireColor(...)` and exported in lowercase (for example `RD` → `red`, `VT` → `violet`). No Onshape abbreviation assumptions or project-data changes are needed. |
 | Exact striped/two-color encoding | **RESOLVED** by the user's 1.217 video verification and subsequent Onshape verification. Export convention: `primary-color/secondary-color` using lowercase full English names, for example `GNYE` → `green/yellow`, `BUWH` → `blue/white`, `WHBU` → `white/blue`. Both colors come from the authoritative WireForm parser; unsupported/missing source codes remain fatal. |
@@ -464,6 +466,15 @@ Do not add these to the Phase 1 CSV without verified support:
 - Genuine topology/reference/pin/identity/gauge/color errors, duplicate-ID detection, empty-project errors and invalid-strip warnings retain their behavior. Existing download gating and omission acknowledgement remain for actual warnings.
 - Recorded a representative pre-cleanup CSV SHA-256 digest from commit `2b30d20`; regression tests assert the generated UTF-8/CRLF bytes are unchanged, including part numbers, contacts, strips and ordered bi-colors.
 - Verification results: focused Onshape exporter/UI regression suite passed (37 tests/subtests), including the pre-cleanup CSV byte fingerprint; `npm run lint` and `npm run typecheck` passed; `npm test` passed (279 tests, 0 failures), including the production build. No browser-driven or new Onshape import test was performed during this presentation-only cleanup.
+
+### Optional radial conductor insulation (2026-11-02)
+
+- Added optional numeric `insulationThicknessMm` to the existing wire/bundle/cable component model. Missing remains unspecified; zero is preserved. No default, per-conductor override, diameter, jacket or covering property was introduced. Schema 4 and existing library versions remain compatible.
+- Inspectors, direct Property Editor cells and typed bulk transactions use the shared optional nonnegative numeric validator/editor. Inherited cable/bundle conductor values are read-only and resolved from stable parent/member identities. Native save/load, libraries and duplication retain the value.
+- Appended exactly `Insulation` to the single comprehensive CSV, making 14 columns. The original thirteen columns retain their headers, order, values and escaping. The existing recorded 13-column SHA-256 remains identical after removing the final column byte-for-byte.
+- Insulation values are plain decimal millimeters, including explicit `0`; blanks remain empty. Configure the Onshape import mapping for millimeters. The established verified exporter workflow is unchanged; no new Onshape import was performed in this environment for the appended field.
+- HTML/PDF report models and content, BOM CSV and standard WireViz YAML were compared before/after insulation assignment and are unchanged. The diagram/topology, contacts, strips, colors, IDs, twisted pairs and length overrides remain intact.
+- Verification: `npm run test:insulation` passed 46 tests/subtests; the full `npm test` run passed 353 tests, including the production build. Lint and typecheck passed. Isolated production Chrome exercised all three inspectors, zero/clear/invalid typing, duplication, property cells, bulk Set/Clear/no-op and undo/redo, inherited read-only values, save/reopen, and an actual 26-conductor CSV download with 14 columns and unchanged original fields.
 
 ## 15. External references (ordered by direct relevance)
 

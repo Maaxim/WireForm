@@ -254,6 +254,22 @@ half of a project-level pair.
 
 ## Harness Property Editor
 
+Wire, bundle and multicore-cable inspectors also expose **Insulation Thickness**
+in millimeters beside Gauge. It is the radial insulation around each conductor,
+excluding the outer jacket, bundle covering or sleeving. The optional numeric
+`insulationThicknessMm` has no default: blank means unspecified; explicit `0`
+means deliberately bare. Positive finite values retain their decimal precision.
+Negative, malformed and nonfinite values are rejected. Schema-4 projects and old
+libraries remain compatible without migration or inserted measurements.
+
+The same **Insulation Thickness (mm)** column is editable for Cables, Bundles,
+and standalone wires in Conductors, including typed bulk Set/Clear and the
+existing atomic undo/redo. Bundle/cable conductor rows inherit their parent's
+value read-only; no individual overrides exist. Clear removes the optional
+field rather than setting zero. Templates, duplication and native save/load
+preserve it. Reports, BOM, diagrams, Connection Mapping and standard WireViz
+YAML do not include this property.
+
 Open **Tools → Property Editor** for a near-fullscreen spreadsheet view of the
 current project. Connectors, Cables, Bundles and Conductors share one column and
 editing system. The Conductors table also includes standalone wires. Search is
@@ -410,10 +426,10 @@ password/error handling, zoom/pan, downloads and autosave isolation.
 Choose **Export Onshape CSV** in the top bar, review the
 conductor counts and validation messages, and download the CSV. Import it as an
 Onshape document tab and select the columns needed by Cable/Wire Routing.
-WireForm produces one comprehensive file with these 13 columns:
+WireForm produces one comprehensive file with these 14 columns:
 
 ```csv
-Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm)
+Wire ID,From Ref,From Pin,To Ref,To Pin,Gauge,Color,From Part No,To Part No,From Contact PN,To Contact PN,From Strip Length (mm),To Strip Length (mm),Insulation
 ```
 
 Each eligible standalone wire, bundle conductor, or multicore conductor exports
@@ -429,9 +445,16 @@ termination metadata, converted to numeric millimeters without a unit suffix.
 Contacts and strip lengths stay attached to their physical endpoints when
 From/To order changes. Original part-number formatting is preserved.
 
+`Insulation` appends radial conductor insulation thickness as a plain numeric
+millimeter value: `0.5`, `0.127` or explicit `0`, without a unit suffix. Every
+bundle/cable member inherits its parent's value; unspecified values export blank.
+Configure the Onshape mapping to interpret Insulation in millimeters. The
+original thirteen columns, IDs, endpoint association and color/gauge conversions
+are unchanged. No other geometric or jacket properties are exported.
+
 Missing optional values are empty cells and do not block export. Invalid strip
-lengths are left empty with a warning. The preview shows routing fields to remain
-compact; every download includes all 13 columns. The four contact/strip-length
+lengths are left empty with a warning. The preview shows routing fields plus
+Insulation to remain compact; every download includes all 14 columns. The four contact/strip-length
 fields are additional manufacturing metadata; WireForm does not claim that
 Onshape consumes them for routing. There are no export modes or separate files.
 
@@ -441,6 +464,11 @@ visible in the export dialog and blocks download when it would produce an
 invalid CSV. The user has verified the exporter with Onshape. See
 [the exporter handoff](ONSHAPE_EXPORT_HANDOFF.md) for the mapping and validation
 contract.
+
+`npm run test:insulation` covers numeric validation, native/library round-trips,
+parent inheritance, property/bulk edits and CSV compatibility. The isolated
+Chrome production check is `node --experimental-strip-types
+scripts/browser-property-editor-smoke.mjs --insulation`.
 
 ## Local development
 

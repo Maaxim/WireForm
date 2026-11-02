@@ -56,7 +56,9 @@ import YAML from "yaml";
 import { ProjectFilesDialog } from "./ProjectFilesDialog";
 import { Field } from "./EditorField";
 import { WireColorEditor, WireColorSwatch } from "./WireColorEditor";
-import { WireGaugeEditor } from "./PropertyValueEditors";
+import { OptionalNumberPropertyEditor, WireGaugeEditor } from "./PropertyValueEditors";
+import { INSULATION_THICKNESS_HELP } from "./insulation-thickness";
+import { isOptionalNonNegativeNumber } from "./numeric-property";
 import { PropertyEditorDialog } from "./PropertyEditorDialog";
 import { projectAttachmentLimitWarnings } from "./project-files";
 import {
@@ -65,7 +67,7 @@ import {
   serializeBomCsv,
 } from "./bom";
 import {
-  ONSHAPE_CSV_COLUMNS,
+  ONSHAPE_CSV_PREVIEW_COLUMNS,
   buildOnshapeCableWireExport,
   onshapeCsvFilenameForTitle,
   onshapeExportHasErrors,
@@ -733,6 +735,9 @@ function validateProject(project: HarnessProject): ValidationResult {
     }
     if (CABLE_KINDS.includes(node.kind) && node.wireCount < 1) {
       errors.push(`${node.designator} needs at least one conductor.`);
+    }
+    if (CABLE_KINDS.includes(node.kind) && !isOptionalNonNegativeNumber(node.insulationThicknessMm)) {
+      errors.push(`${node.designator}: Insulation Thickness must be a finite number greater than or equal to zero, or unspecified.`);
     }
   }
 
@@ -4745,6 +4750,16 @@ export function HarnessStudio() {
                         <Field label="Gauge">
                           <WireGaugeEditor value={selected.gauge} onChange={(gauge) => updateSelected({ gauge })} />
                         </Field>
+                        <Field label="Insulation Thickness">
+                          <OptionalNumberPropertyEditor key={selected.id} value={selected.insulationThicknessMm}
+                            label="Insulation Thickness" help={INSULATION_THICKNESS_HELP}
+                            onChange={(insulationThicknessMm) => updateProject((draft) => {
+                              const component = draft.components.find((component) => component.id === selected.id);
+                              if (!component) return;
+                              if (insulationThicknessMm === undefined) delete component.insulationThicknessMm;
+                              else component.insulationThicknessMm = insulationThicknessMm;
+                            })} />
+                        </Field>
                         <Field
                           label={
                             selected.kind === "bundle"
@@ -5122,7 +5137,7 @@ export function HarnessStudio() {
                     <table>
                       <thead>
                         <tr>
-                          {ONSHAPE_CSV_COLUMNS.slice(0, 7).map((column) => (
+                          {ONSHAPE_CSV_PREVIEW_COLUMNS.map((column) => (
                             <th key={column.key}>{column.heading}</th>
                           ))}
                         </tr>
@@ -5130,7 +5145,7 @@ export function HarnessStudio() {
                       <tbody>
                         {onshapeExport.rows.slice(0, 25).map((row) => (
                           <tr key={row.wireId}>
-                            {ONSHAPE_CSV_COLUMNS.slice(0, 7).map((column) => (
+                            {ONSHAPE_CSV_PREVIEW_COLUMNS.map((column) => (
                               <td key={column.key}>{row[column.key]}</td>
                             ))}
                           </tr>

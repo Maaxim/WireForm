@@ -17,6 +17,7 @@ import {
 } from "./approved-alternatives.ts";
 import { cloneConnectorShieldTerminationsWithNewIds } from "./connector-shields.ts";
 import { remapBundleConductorLengthOverrides } from "./bundle-conductors.ts";
+import { readOptionalNonNegativeNumber } from "./numeric-property.ts";
 
 export const LIBRARY_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const LIBRARY_FILE_FORMAT = "wireviz-gui-component-library";
@@ -90,6 +91,7 @@ export function componentToTemplate(
   templateName = component.name || component.designator,
   twistedPairs: readonly TwistedPair[] = [],
 ): ComponentTemplate {
+  if (CABLE_KINDS.includes(component.kind)) readOptionalNonNegativeNumber(component.insulationThicknessMm, "Library component Insulation Thickness");
   const {
     id: _id,
     x: _x,
@@ -291,6 +293,8 @@ function normalizedTemplate(
         }];
       })
     : [];
+  const insulationThicknessMm = CABLE_KINDS.includes(kind)
+    ? readOptionalNonNegativeNumber(componentSource.insulationThicknessMm, "Library component Insulation Thickness") : undefined;
   const templateConductorIds = Array.from(
     { length: wireCount },
     (_, conductorIndex) => {
@@ -350,6 +354,7 @@ function normalizedTemplate(
             .map((color) => textValue(color, "BK", 40).toUpperCase())
         : [],
       gauge: textValue(componentSource.gauge, base.gauge, 160),
+      ...(insulationThicknessMm !== undefined ? { insulationThicknessMm } : {}),
       length: textValue(componentSource.length, base.length, 160),
       shield: Boolean(componentSource.shield),
       ...(typeof componentSource.shieldColor === "string" &&

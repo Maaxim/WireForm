@@ -7,7 +7,7 @@ import { applyPropertyTransaction, PropertyTransactionError, propertyRowLabel, r
   selectPropertyRange, validatePropertyPreview, type PropertyTransactionPreview } from "./property-transactions";
 import { naturalCompare } from "./bom";
 import { WireColorEditor, WireColorSwatch } from "./WireColorEditor";
-import { LengthValueEditor, WireGaugeEditor } from "./PropertyValueEditors";
+import { LengthValueEditor, NumberValueEditor, WireGaugeEditor } from "./PropertyValueEditors";
 import { PROPERTY_CATEGORIES, PROPERTY_HEADER_HEIGHT, PROPERTY_ROW_HEIGHT, applyPropertyEdit, buildPropertyRows,
   nextEditablePropertyCell, propertyColumns, propertyDisplay, propertyIsReadOnly, propertyVisibleRange,
   queryPropertyRows, validatePropertyEdit, type PropertyCategory, type PropertyColumn, type PropertyEdit,
@@ -202,7 +202,7 @@ export function PropertyEditorDialog(props: Props) {
                 return <td key={column.id} ref={(element) => { const key = cellId(row.key, index); if (element) cellRefs.current.set(key, element); else cellRefs.current.delete(key); }}
                   role="gridcell" tabIndex={activeRow === range.start + offset && activeColumn === index ? 0 : -1}
                   data-property={column.id} data-component-id={row.component.id} data-conductor-id={row.ref.conductorId}
-                  aria-readonly={readOnly} aria-invalid={Boolean(issue)} title={[display, readOnly ? column.help || "Read-only" : "Double-click or press Enter to edit", issue].filter(Boolean).join("\n")}
+                  aria-readonly={readOnly} aria-invalid={Boolean(issue)} title={[display, column.help, readOnly ? "Read-only" : "Double-click or press Enter to edit", issue].filter(Boolean).join("\n")}
                   className={`${readOnly ? "readonly" : "editable"}${issue ? " invalid" : ""}${selection?.key === row.key && activeColumn === index ? " selected" : ""}`}
                   onFocus={() => { if (!editing) setSelection({ key: row.key, column: index }); }}
                   onClick={() => { if (!editing) setSelection({ key: row.key, column: index }); }}
@@ -236,7 +236,7 @@ export function PropertyEditorDialog(props: Props) {
         onSubmit={(event) => { event.preventDefault(); if (commit()) focusCell(activeRow, activeColumn); }}
         onKeyDown={(event) => {
           if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
-          else if (event.key === "Tab" && ["text", "gauge", "length"].includes(editing.column.editor)) {
+          else if (event.key === "Tab" && ["text", "gauge", "length", "number"].includes(editing.column.editor)) {
             event.preventDefault(); event.stopPropagation(); if (commit()) moveEditable(event.shiftKey ? -1 : 1);
           } else if (event.key === "Enter" && (editing.column.editor !== "multiline" || event.ctrlKey || event.metaKey) && !(event.target as HTMLElement).matches("select,button")) {
             event.preventDefault(); if (commit()) focusCell(activeRow, activeColumn);
@@ -247,6 +247,7 @@ export function PropertyEditorDialog(props: Props) {
           : editing.column.editor === "multiline" ? <textarea autoFocus aria-label="Cell value" rows={6} value={editing.value} onChange={(event) => setEditing({ ...editing, value: event.target.value })} />
           : editing.column.editor === "length" ? <LengthValueEditor value={editing.value} onChange={(value) => setEditing({ ...editing, value })} />
           : editing.column.editor === "gauge" ? <WireGaugeEditor value={editing.value} autoFocus onChange={(value) => setEditing({ ...editing, value })} />
+          : editing.column.editor === "number" ? <NumberValueEditor value={editing.value} autoFocus onChange={(value) => setEditing({ ...editing, value })} />
           : <input autoFocus aria-label="Cell value" value={editing.value} onChange={(event) => setEditing({ ...editing, value: event.target.value })} />}
         {error && <p className="property-edit-error" role="alert">{error}</p>}
         {editing.column.editor === "multiline" && <small>Enter: new line · Ctrl/⌘+Enter: save</small>}

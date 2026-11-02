@@ -2752,6 +2752,12 @@ select:focus-visible {
 .property-cell-editor > input, .property-cell-editor textarea, .property-length-input input, .property-length-input select { width: 100%; padding: 8px; border: 1px solid var(--line); color: var(--ink); background: var(--panel); border-radius: 4px; }
 .property-cell-editor textarea { resize: vertical; font: inherit; }
 .property-length-input { display: grid; grid-template-columns: minmax(0, 1fr) 80px; gap: 8px; }
+.property-number-input input { width: 100%; padding: 8px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.property-number-input small { display: block; margin-top: 4px; line-height: 1.4; }
+.measurement-unit { color: var(--muted); font-size: 10px; }
+.optional-number-property { display: flex; align-items: flex-start; gap: 6px; }
+.optional-number-property .property-number-input { flex: 1; min-width: 0; }
+.optional-number-property .measurement-unit { padding-top: 10px; }
 .property-cell-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .property-cell-editor .primary-button { background: var(--teal); color: white; }
 .property-edit-error { margin: 0; color: var(--danger); }
@@ -2767,12 +2773,19 @@ select:focus-visible {
 .property-bulk-modal h3 { margin: 0; font-size: 17px; }
 .property-bulk-modal > header > span { color: var(--muted); }
 .property-bulk-body { overflow: auto; padding: 16px 18px; min-height: 0; }
-.property-bulk-field { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 2fr); align-items: start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-.property-bulk-field > label, .property-replace-form > label:not(:has(input[type="checkbox"])) { display: grid; gap: 6px; }
-.property-bulk-field > small { grid-column: 2; color: var(--muted); }
+.property-bulk-field { display: grid; gap: 8px; min-width: 0; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.property-bulk-controls { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); align-items: start; gap: 12px; min-width: 0; }
+.property-replace-form > label:not(:has(input[type="checkbox"])) { display: grid; gap: 6px; }
+.property-bulk-field > small { color: var(--muted); }
 .property-bulk-modal input:not([type="checkbox"]):not([type="radio"]), .property-bulk-modal textarea, .property-bulk-modal select { width: 100%; padding: 8px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
 .property-bulk-modal textarea { resize: vertical; }
-.property-bulk-value { display: grid; gap: 6px; }
+.property-bulk-controls input, .property-bulk-controls select { height: 34px; box-sizing: border-box; }
+.property-bulk-controls textarea { box-sizing: border-box; }
+.property-bulk-value { display: grid; gap: 6px; min-width: 0; }
+.property-bulk-value .wire-color-editor { margin: 0; padding: 0; border: 0; background: transparent; min-width: 0; }
+.property-bulk-value .wire-color-editor .field-row { grid-template-columns: minmax(0, 1fr); }
+.property-bulk-value .wire-color-editor .field { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); align-items: start; gap: 8px; margin: 0; }
+.property-bulk-value .wire-color-editor .field > span { flex-wrap: wrap; gap: 4px; margin: 0; color: var(--muted); }
 .property-replace-form { display: grid; gap: 14px; }
 .property-replace-form fieldset { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); }
 .property-preview-counts { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 14px; }
@@ -2783,7 +2796,7 @@ select:focus-visible {
 .property-bulk-modal > footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid var(--line); }
 .property-bulk-modal button.primary-button { background: var(--teal); color: white; }
 .property-bulk-modal button.primary-button:disabled { opacity: .4; }
-@media (max-width: 650px) { .property-bulk-field { grid-template-columns: 1fr; } .property-bulk-field > small { grid-column: 1; } }
+@media (max-width: 650px) { .property-bulk-controls { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .project-viewer-header { gap: 6px; padding: 8px; } .project-file-viewer button { padding: 6px; font-size: 11px; } .project-viewer-toolbar { gap: 5px; padding: 6px; } }
 @media (max-width: 800px) { .project-files-list { grid-template-columns: 1fr; } .project-files-toolbar { flex-wrap: wrap; } }
 

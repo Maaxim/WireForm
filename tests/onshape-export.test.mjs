@@ -29,6 +29,7 @@ const EXPECTED_HEADERS = [
   "Wire ID", "From Ref", "From Pin", "To Ref", "To Pin", "Gauge", "Color",
   "From Part No", "To Part No", "From Contact PN", "To Contact PN",
   "From Strip Length (mm)", "To Strip Length (mm)",
+  "Insulation",
 ];
 const EMPTY_MANUFACTURING_FIELDS = {
   fromPartNo: "",
@@ -37,6 +38,7 @@ const EMPTY_MANUFACTURING_FIELDS = {
   toContactPn: "",
   fromStripLengthMm: "",
   toStripLengthMm: "",
+  insulation: "",
 };
 
 /** Parse quoted records independently of the exporter's escaping implementation. */
@@ -157,7 +159,22 @@ test("standalone wire exports exactly once with physical pins, not pin labels", 
   assert.deepEqual(result.issues, []);
 });
 
-test("CSV bytes match the verified exporter before UI cleanup", () => {
+/** Remove the last column while preserving all other bytes, quotes and newlines. */
+function withoutInsulationColumn(csv) {
+  let quoted = false, start = 0, lastComma = -1, output = "";
+  for (let index = 0; index < csv.length; index++) {
+    if (csv[index] === '"') {
+      if (quoted && csv[index + 1] === '"') index++;
+      else quoted = !quoted;
+    } else if (!quoted && csv[index] === ",") lastComma = index;
+    else if (!quoted && csv[index] === "\r" && csv[index + 1] === "\n") {
+      output += csv.slice(start, lastComma) + "\r\n"; start = index + 2; index++;
+    }
+  }
+  return output;
+}
+
+test("first thirteen CSV columns remain byte-identical to the verified exporter", () => {
   const { project, j1, j2 } = completeProject("bundle", 2);
   j1.mpn = "09 32,040 3001";
   j2.mpn = "10142708-040021LF";
@@ -173,7 +190,7 @@ test("CSV bytes match the verified exporter before UI cleanup", () => {
   const csv = serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows);
   // Captured from commit 2b30d20 before changing any UI or issue messages.
   assert.equal(
-    createHash("sha256").update(csv, "utf8").digest("hex"),
+    createHash("sha256").update(withoutInsulationColumn(csv), "utf8").digest("hex"),
     "2a22fdbff703918d28416574f67528709bc4f2047177ce7df634342aaf5b86df",
   );
 });
@@ -253,8 +270,8 @@ for (const kind of ["wire", "bundle", "cable"]) {
     const csv = serializeOnshapeCableWireCsv(result.rows);
     const records = parseCsv(csv);
     assert.deepEqual(records[0], EXPECTED_HEADERS);
-    assert.ok(records.every((record) => record.length === 13));
-    assert.deepEqual(records[1].slice(7), [
+    assert.ok(records.every((record) => record.length === 14));
+    assert.deepEqual(records[1].slice(7, 13), [
       j1.mpn, j2.mpn, "09 33 000 6102", "10158070-121LF", "7.5", "5.7",
     ]);
     assert.equal(csv, serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows));
@@ -286,7 +303,7 @@ test("reversed endpoint ordering retains each physical pin's own contact and str
   assert.deepEqual(record.slice(0, 5), [
     onshapeWireId(cable.id, cable.conductorIds[0]), "J1", "3", "J5", "10",
   ]);
-  assert.deepEqual(record.slice(7), [
+  assert.deepEqual(record.slice(7, 13), [
     "CONNECTOR-B", "CONNECTOR-A", "PN-B", "PN-A", "7.5", "5.7",
   ]);
 
@@ -316,8 +333,8 @@ test("missing manufacturing data stays empty without inferring alternatives or g
   const result = buildOnshapeCableWireExport(project);
   assert.equal(onshapeExportHasErrors(result), false);
   const records = parseCsv(serializeOnshapeCableWireCsv(result.rows));
-  assert.deepEqual(records[1].slice(7), ["", "", "", "", "", ""]);
-  assert.deepEqual(records[2].slice(7), ["", "", "OTHER-CAVITY-CONTACT", "", "7.5", ""]);
+  assert.deepEqual(records[1].slice(7, 13), ["", "", "", "", "", ""]);
+  assert.deepEqual(records[2].slice(7, 13), ["", "", "OTHER-CAVITY-CONTACT", "", "7.5", ""]);
 });
 
 test("one-sided manufacturing metadata never fills the other physical endpoint", () => {
@@ -327,7 +344,7 @@ test("one-sided manufacturing metadata never fills the other physical endpoint",
   const result = buildOnshapeCableWireExport(project);
   assert.equal(onshapeExportHasErrors(result), false);
   const record = parseCsv(serializeOnshapeCableWireCsv(result.rows))[1];
-  assert.deepEqual(record.slice(7), ["FROM-CONNECTOR", "", "FROM-CONTACT", "", "7.5", ""]);
+  assert.deepEqual(record.slice(7, 13), ["FROM-CONNECTOR", "", "FROM-CONTACT", "", "7.5", ""]);
 });
 
 test("strip units convert exactly to millimeters without rounding meaningful decimals", () => {
@@ -362,7 +379,7 @@ test("malformed optional strip lengths warn and leave blanks without blocking ro
   }
 });
 
-test("all thirteen fields retain alignment and quoting for manufacturing part numbers", () => {
+test("all fourteen fields retain alignment and quoting for manufacturing part numbers", () => {
   assert.deepEqual(ONSHAPE_CSV_HEADERS, EXPECTED_HEADERS);
   assert.deepEqual(parseCsv(serializeOnshapeCableWireCsv([])), [EXPECTED_HEADERS]);
   const { project, j1, j2 } = completeProject("wire", 1);
@@ -372,9 +389,9 @@ test("all thirteen fields retain alignment and quoting for manufacturing part nu
   project.links[1].termination = { contact: { mpn: "10158070-121LF\n端" }, stripLength: "5.7 mm" };
   const result = buildOnshapeCableWireExport(project);
   const records = parseCsv(serializeOnshapeCableWireCsv(result.rows));
-  assert.equal(records[0].length, 13);
-  assert.equal(records[1].length, 13);
-  assert.deepEqual(records[1].slice(7), [
+  assert.equal(records[0].length, 14);
+  assert.equal(records[1].length, 14);
+  assert.deepEqual(records[1].slice(7, 13), [
     j1.mpn, j2.mpn, project.links[0].termination.contact.mpn,
     project.links[1].termination.contact.mpn, "7.5", "5.7",
   ]);
@@ -572,7 +589,7 @@ for (const kind of ["wire", "bundle", "cable"]) {
       assert.equal(
         csv,
         EXPECTED_HEADERS.join(",") + "\r\n" +
-          `${result.rows[0].wireId},"J1,""Ü""",1,"J2\n端",1,24,${expected},,,,,,\r\n`,
+          `${result.rows[0].wireId},"J1,""Ü""",1,"J2\n端",1,24,${expected},,,,,,,\r\n`,
       );
       assert.equal(
         serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows),
@@ -682,7 +699,7 @@ test("editor exposes a local preview/download flow with fatal and warning gates"
   assert.match(dialog, /Export CSV/);
   assert.match(dialog, /CSV preview/);
   assert.match(dialog, /onshapeExport\.rows\.slice\(0, 25\)/);
-  assert.match(dialog, /ONSHAPE_CSV_COLUMNS\.slice\(0, 7\)/);
+  assert.match(dialog, /ONSHAPE_CSV_PREVIEW_COLUMNS\.map/);
   assert.match(dialog, /\{candidate\.message\}/);
   assert.match(dialog, /onshapeExportHasErrors\(onshapeExport\)/);
   assert.match(dialog, /onshapeExportHasWarnings\(onshapeExport\)/);

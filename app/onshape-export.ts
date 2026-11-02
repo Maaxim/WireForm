@@ -13,6 +13,8 @@ import { parseWireColor } from "./wire-colors.ts";
 import { parseLengthMillimeters } from "./length.ts";
 import { isValidStripLength } from "./termination.ts";
 import { parseAwgGauge } from "./wire-size.ts";
+import { getConductorInsulationThickness } from "./insulation-thickness.ts";
+import { formatNumericProperty, isOptionalNonNegativeNumber } from "./numeric-property.ts";
 
 export type OnshapeExportIssueSeverity = "error" | "warning" | "info";
 
@@ -38,6 +40,7 @@ export interface OnshapeCsvRow {
   toContactPn: string;
   fromStripLengthMm: string;
   toStripLengthMm: string;
+  insulation: string;
 }
 
 /** The single source for header order, serialization, and routing preview. */
@@ -55,10 +58,14 @@ export const ONSHAPE_CSV_COLUMNS = [
   { heading: "To Contact PN", key: "toContactPn" },
   { heading: "From Strip Length (mm)", key: "fromStripLengthMm" },
   { heading: "To Strip Length (mm)", key: "toStripLengthMm" },
+  { heading: "Insulation", key: "insulation" },
 ] as const satisfies ReadonlyArray<{ heading: string; key: keyof OnshapeCsvRow }>;
 
 export const ONSHAPE_CSV_HEADERS = ONSHAPE_CSV_COLUMNS.map(
   (column) => column.heading,
+);
+export const ONSHAPE_CSV_PREVIEW_COLUMNS = ONSHAPE_CSV_COLUMNS.filter(
+  (column, index) => index < 7 || column.key === "insulation",
 );
 
 export type OnshapeConductorKind = ResolvedPhysicalConnection["conductor"]["kind"];
@@ -371,6 +378,11 @@ export function buildOnshapeCableWireExport(
       );
     }
 
+    const insulationThicknessMm = getConductorInsulationThickness(component, connection.conductor);
+    if (!isOptionalNonNegativeNumber(insulationThicknessMm)) {
+      rowIssues.push(issue("error", "INVALID_INSULATION_THICKNESS", `${label} has invalid Insulation Thickness; use finite numeric millimeters greater than or equal to zero, or leave it unspecified.`, connection));
+    }
+
     issues.push(...rowIssues);
     if (
       rowIssues.length ||
@@ -411,6 +423,7 @@ export function buildOnshapeCableWireExport(
         toContactPn: to.contactPn,
         fromStripLengthMm: from.stripLengthMm,
         toStripLengthMm: to.stripLengthMm,
+        insulation: formatNumericProperty(insulationThicknessMm),
       },
     });
   }

@@ -1,4 +1,5 @@
 import { normalizeProjectAttachments } from "./project-files.ts";
+import { readOptionalNonNegativeNumber } from "./numeric-property.ts";
 
 export const PROJECT_SCHEMA_VERSION = 4 as const;
 export const PROJECT_FILE_FORMAT = "wireform-project";
@@ -121,6 +122,8 @@ export interface HarnessComponent {
   conductorLengthOverrides?: Record<string, string>;
   colors: string[];
   gauge: string;
+  /** Radial conductor insulation in mm, never the outer jacket/covering. */
+  insulationThicknessMm?: number;
   length: string;
   shield: boolean;
   shieldColor?: string;
@@ -671,6 +674,9 @@ function normalizeComponent(
   const shieldColor = CABLE_KINDS.includes(kind)
     ? nonEmptyText(source.shieldColor, 40)?.toUpperCase()
     : undefined;
+  const insulationThicknessMm = CABLE_KINDS.includes(kind)
+    ? readOptionalNonNegativeNumber(source.insulationThicknessMm, `${source.designator ?? id} Insulation Thickness`)
+    : undefined;
   const rawConductorIds = stringList(source.conductorIds).slice(0, wireCount);
   const conductorIds: string[] = [];
   const usedConductorIds = new Set<string>();
@@ -730,6 +736,7 @@ function normalizeComponent(
       .slice(0, wireCount)
       .map((color) => color.toUpperCase()),
     gauge: textValue(source.gauge, base.gauge, 160),
+    ...(insulationThicknessMm !== undefined ? { insulationThicknessMm } : {}),
     length: textValue(source.length, base.length, 160),
     shield: Boolean(source.shield),
     ...(shieldColor ? { shieldColor } : {}),
@@ -918,6 +925,9 @@ export function parseProjectFile(text: string): ParsedProjectFile {
 }
 
 export function serializeProjectFile(project: HarnessProject) {
+  for (const component of project.components) {
+    if (CABLE_KINDS.includes(component.kind)) readOptionalNonNegativeNumber(component.insulationThicknessMm, `${component.designator} Insulation Thickness`);
+  }
   const file: ProjectFile = {
     format: PROJECT_FILE_FORMAT,
     schemaVersion: PROJECT_SCHEMA_VERSION,

@@ -245,6 +245,20 @@ test("native project alone includes Project Files; every manufacturing export an
   assert.equal(reopen(project).attachments.length, 4);
 });
 
+test("conductor insulation remains absent from reports, BOM and standard WireViz YAML", () => {
+  const project = harness(), wireviz = wirevizBuilder();
+  const output = () => {
+    const model = report.buildHarnessReportModel(project, SVG);
+    return {
+      model: JSON.stringify(model), html: report.renderHarnessReportHtml(model), pdf: JSON.stringify(pdf.buildHarnessPdfDocument(model)),
+      bom: bom.serializeBomCsv(bom.buildBomRows(project)), wireviz: YAML.stringify(wireviz(project)),
+    };
+  };
+  const before = output();
+  project.components.filter((component) => model.CABLE_KINDS.includes(component.kind)).forEach((component) => { component.insulationThicknessMm = 0.127; });
+  assert.deepEqual(output(), before);
+});
+
 test("editor retains file management while previews use a separate local viewer", async () => {
   const dialog = await readFile(new URL("../app/ProjectFilesDialog.tsx", import.meta.url), "utf8");
   const viewer = await readFile(new URL("../app/ProjectFileViewer.tsx", import.meta.url), "utf8");

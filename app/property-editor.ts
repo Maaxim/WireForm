@@ -5,6 +5,8 @@ import { CABLE_KINDS, CONNECTOR_KINDS, type HarnessComponent, type HarnessProjec
 import { findTwistedPairForBundleConductor, findTwistedPairForWire } from "./twisted-pair.ts";
 import { getWireColorDisplay, parseWireColor } from "./wire-colors.ts";
 import { parseWireSize, validateWireSize } from "./wire-size.ts";
+import { getConductorInsulationThickness, INSULATION_THICKNESS_HELP } from "./insulation-thickness.ts";
+import { formatNumericProperty, parseOptionalNonNegativeNumberInput, validateOptionalNonNegativeNumberInput } from "./numeric-property.ts";
 
 export const PROPERTY_CATEGORIES = ["connectors", "cables", "bundles", "conductors"] as const;
 export type PropertyCategory = typeof PROPERTY_CATEGORIES[number];
@@ -12,7 +14,7 @@ export interface PropertyRowRef { category: PropertyCategory; componentId: strin
 export interface PropertyRow {
   key: string; ref: PropertyRowRef; component: HarnessComponent; conductorIndex?: number; twistedPair: string;
 }
-export type PropertyEditorType = "text" | "multiline" | "length" | "gauge" | "color" | "readonly";
+export type PropertyEditorType = "text" | "multiline" | "length" | "gauge" | "number" | "color" | "readonly";
 export interface PropertyColumn {
   id: string; title: string; editor: PropertyEditorType; sizing: "compact" | "content" | "flex";
   get: (row: PropertyRow) => string | number;
@@ -90,11 +92,25 @@ const length: PropertyColumn = { id: "length", title: "Length", editor: "length"
   },
   compare: (left, right) => (parseLengthMeters(String(length.get(left))) ?? -1) - (parseLengthMeters(String(length.get(right))) ?? -1) };
 const metadata = () => [textColumn("manufacturer", "Manufacturer"), textColumn("mpn", "MPN"), textColumn("name", "Description"), textColumn("notes", "Notes", true)];
+const insulation: PropertyColumn = {
+  id: "insulationThicknessMm", title: "Insulation Thickness (mm)", editor: "number", sizing: "compact", help: INSULATION_THICKNESS_HELP,
+  get: (row) => (row.ref.category === "conductors" ? getConductorInsulationThickness(row.component, row.ref) : row.component.insulationThicknessMm) ?? "",
+  format: (value) => value === "" ? "" : `${formatNumericProperty(Number(value))} mm`,
+  readOnly: (row) => row.ref.category === "conductors" && (row.component.kind !== "wire" || row.component.wireCount !== 1),
+  validate: validateOptionalNonNegativeNumberInput,
+  normalize: (value) => validateOptionalNonNegativeNumberInput(value) ? value : formatNumericProperty(parseOptionalNonNegativeNumberInput(value)),
+  set: (component, value) => { const number = parseOptionalNonNegativeNumberInput(value);
+    if (number === undefined) delete component.insulationThicknessMm; else component.insulationThicknessMm = number; },
+  compare: (left, right) => {
+    const a = insulation.get(left), b = insulation.get(right);
+    return a === "" ? b === "" ? 0 : -1 : b === "" ? 1 : Number(a) - Number(b);
+  },
+};
 export function propertyColumns(category: PropertyCategory): readonly PropertyColumn[] {
   if (category === "connectors") return [designator, ...metadata(),
     { id: "pinCount", title: "Pin count", editor: "readonly", sizing: "compact", get: (row) => row.component.pinCount },
     { id: "kind", title: "Connector type", editor: "readonly", sizing: "content", get: (row) => row.component.kind }];
-  if (category !== "conductors") return [designator, ...metadata(), { ...length, title: category === "bundles" ? "Default length" : "Length" }, gauge,
+  if (category !== "conductors") return [designator, ...metadata(), { ...length, title: category === "bundles" ? "Default length" : "Length" }, gauge, insulation,
     { id: "wireCount", title: "Conductors", editor: "readonly", sizing: "compact", get: (row) => row.component.wireCount }];
   return [
     { ...designator, id: "parent", title: "Parent" },
@@ -105,7 +121,7 @@ export function propertyColumns(category: PropertyCategory): readonly PropertyCo
       format: (value) => getWireColorDisplay(String(value)), normalize: (value) => parseWireColor(value).code,
       validate: (value) => parseWireColor(value).supported ? undefined : "Choose a supported wire color (including an optional stripe).",
       set: (component, value, row) => { component.colors[row.conductorIndex!] = value; } },
-    gauge, { ...length, title: "Effective length" },
+    gauge, insulation, { ...length, title: "Effective length" },
     { id: "lengthSource", title: "Length source", editor: "readonly", sizing: "content", get: (row) => row.component.kind === "bundle"
       ? getBundleConductorLengthOverride(row.component, row.ref.conductorId!) !== undefined ? "Override" : "Default"
       : row.component.kind === "cable" ? "Cable" : "Wire" },
