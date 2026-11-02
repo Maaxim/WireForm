@@ -54,6 +54,10 @@ import {
 } from "lucide-react";
 import YAML from "yaml";
 import { ProjectFilesDialog } from "./ProjectFilesDialog";
+import { Field } from "./EditorField";
+import { WireColorEditor, WireColorSwatch } from "./WireColorEditor";
+import { WireGaugeEditor } from "./PropertyValueEditors";
+import { PropertyEditorDialog } from "./PropertyEditorDialog";
 import { projectAttachmentLimitWarnings } from "./project-files";
 import {
   bomFilenameForTitle,
@@ -213,13 +217,10 @@ import {
   withoutTwistedPairsForMembers,
 } from "./twisted-pair";
 import {
-  WIRE_COLOR_OPTIONS,
-  formatWireColor,
   getWireColorCssBackground,
   getWireColorDisplay,
   getWireColorHex,
   getWireColorStripeHex,
-  parseWireColor,
   validateWireColors,
 } from "./wire-colors";
 import {
@@ -467,116 +468,6 @@ function listForCount(values: string[], count: number, fallback: string) {
   return Array.from({ length: count }, (_, index) => values[index] ?? fallback);
 }
 
-function WireColorSwatch({
-  code,
-  className = "",
-}: {
-  code: string;
-  className?: string;
-}) {
-  const parsed = parseWireColor(code);
-  return (
-    <span
-      className={`wire-color-swatch ${parsed.secondary ? "bicolor" : "solid"} ${className}`.trim()}
-      style={{ background: getWireColorCssBackground(code) }}
-      role="img"
-      aria-label={getWireColorDisplay(code)}
-      title={getWireColorDisplay(code)}
-    />
-  );
-}
-
-function WireColorEditor({
-  code,
-  onChange,
-  target = "wire",
-}: {
-  code: string;
-  onChange: (code: string) => void;
-  target?: "wire" | "shield";
-}) {
-  const parsed = parseWireColor(code);
-  const primaryValue = parsed.primary?.code ?? "__unknown";
-  const secondaryValue = parsed.secondary
-    ? parsed.secondary.code
-    : parsed.supported
-      ? ""
-      : "__unknown";
-  const primaryAriaLabel =
-    target === "shield" ? "Primary shield color" : "Primary wire color";
-  const secondaryAriaLabel =
-    target === "shield" ? "Secondary shield color" : "Secondary wire color";
-  return (
-    <div className="wire-color-editor" data-color-target={target}>
-      <div className="field-row">
-        <Field label="Primary color">
-          <div className="select-wrap">
-            <select
-              aria-label={primaryAriaLabel}
-              value={primaryValue}
-              onChange={(event) =>
-                onChange(
-                  formatWireColor(
-                    event.target.value,
-                    parsed.secondary?.code,
-                  ),
-                )
-              }
-            >
-              {!parsed.primary && (
-                <option value="__unknown" disabled>
-                  Unsupported ({parsed.code || "empty"})
-                </option>
-              )}
-              {WIRE_COLOR_OPTIONS.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.name} ({option.code})
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={13} />
-          </div>
-        </Field>
-        <Field label="Secondary color" hint="optional stripe">
-          <div className="select-wrap">
-            <select
-              aria-label={secondaryAriaLabel}
-              value={secondaryValue}
-              disabled={!parsed.primary}
-              onChange={(event) =>
-                onChange(
-                  formatWireColor(
-                    parsed.primary?.code ?? "BK",
-                    event.target.value || undefined,
-                  ),
-                )
-              }
-            >
-              <option value="">None</option>
-              {!parsed.supported && parsed.secondaryCode && (
-                <option value="__unknown" disabled>
-                  Unsupported ({parsed.secondaryCode})
-                </option>
-              )}
-              {WIRE_COLOR_OPTIONS.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.name} ({option.code})
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={13} />
-          </div>
-        </Field>
-      </div>
-      <div className="wire-color-preview">
-        <WireColorSwatch code={code} className="large" />
-        <span>{getWireColorDisplay(code)}</span>
-        <small>WireViz color code</small>
-        <code>{code}</code>
-      </div>
-    </div>
-  );
-}
 
 function naturalSort(a: string, b: string) {
   return a.localeCompare(b, undefined, {
@@ -1039,6 +930,7 @@ export function HarnessStudio() {
   const [librariesReady, setLibrariesReady] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [projectFilesOpen, setProjectFilesOpen] = useState(false);
+  const [propertyEditorOpen, setPropertyEditorOpen] = useState(false);
   const [harnessView, setHarnessView] = useState<"notes" | "images">("notes");
   const [newLibraryName, setNewLibraryName] = useState("");
   const [duplicateMode, setDuplicateMode] =
@@ -1456,6 +1348,7 @@ export function HarnessStudio() {
       setSelectedIds(firstId ? [firstId] : []);
       setHarnessView("notes");
       setProjectFilesOpen(false);
+      setPropertyEditorOpen(false);
       setAutosaveBlocked(false);
       setPendingPort(null);
       setDirty(markDirty);
@@ -1549,7 +1442,7 @@ export function HarnessStudio() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (projectFilesOpen) return;
+      if (projectFilesOpen || propertyEditorOpen) return;
       const target = event.target as HTMLElement | null;
       const isEditing =
         target?.tagName === "INPUT" ||
@@ -1612,6 +1505,7 @@ export function HarnessStudio() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     projectFilesOpen,
+    propertyEditorOpen,
     copySelection,
     pasteSelection,
     redo,
@@ -3023,6 +2917,16 @@ export function HarnessStudio() {
         </div>
 
         <div className="top-actions">
+          <details className="tools-menu">
+            <summary className="icon-button">Tools <ChevronDown size={13} /></summary>
+            <div role="menu" aria-label="Tools">
+              <button role="menuitem" onClick={(event) => {
+                const details = event.currentTarget.closest("details");
+                if (details) details.open = false;
+                setPropertyEditorOpen(true);
+              }}><FileSpreadsheet size={15} /> Property Editor</button>
+            </div>
+          </details>
           <button
             className="icon-button"
             onClick={newProject}
@@ -4839,13 +4743,7 @@ export function HarnessStudio() {
                       )}
                       <div className="field-row">
                         <Field label="Gauge">
-                          <input
-                            value={selected.gauge}
-                            onChange={(event) =>
-                              updateSelected({ gauge: event.target.value })
-                            }
-                            placeholder="22 AWG"
-                          />
+                          <WireGaugeEditor value={selected.gauge} onChange={(gauge) => updateSelected({ gauge })} />
                         </Field>
                         <Field
                           label={
@@ -5112,6 +5010,11 @@ export function HarnessStudio() {
           })}
         />
       )}
+
+      {propertyEditorOpen && <PropertyEditorDialog key={project.projectId} project={project}
+        onClose={() => setPropertyEditorOpen(false)} onUpdate={updateProject}
+        onUndo={undo} onRedo={redo} canUndo={historyState.canUndo} canRedo={historyState.canRedo}
+        validation={validation} />}
 
       {onshapeExportOpen && (
         <div
@@ -5602,25 +5505,6 @@ export function HarnessStudio() {
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="field">
-      <span>
-        {label}
-        {hint && <small>{hint}</small>}
-      </span>
-      {children}
-    </label>
-  );
-}
 
 function optionalNumber(value: string) {
   if (value.trim() === "") return undefined;

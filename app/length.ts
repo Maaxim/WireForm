@@ -37,6 +37,17 @@ export function parseLengthMeters(value: string) {
     : undefined;
 }
 
+export const EDITOR_LENGTH_UNITS = ["mm", "cm", "m", "in", "ft", "yd", "km"] as const;
+
+/** Input decomposition uses the same parser/factors as manufacturing lengths. */
+export function getLengthInputParts(value: string) {
+  if (!value.trim()) return { quantity: "", unit: "m" };
+  const parsed = parseLength(value);
+  if (!parsed) return undefined;
+  return { quantity: parsed.decimal,
+    unit: EDITOR_LENGTH_UNITS.find((unit) => LENGTH_FACTORS_TO_METERS[unit] === parsed.factor) ?? "m" };
+}
+
 /** Exact decimal millimeters for CSV cells, without binary drift or rounding. */
 export function parseLengthMillimeters(value: string): string | undefined {
   const parsed = parseLength(value);

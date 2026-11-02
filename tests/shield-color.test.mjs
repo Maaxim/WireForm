@@ -132,7 +132,7 @@ test("editor reuses the wire color editor and preserves the wide shield hit targ
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/preview.worker.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(studio, /function WireColorEditor/);
+  assert.match(studio, /import \{ WireColorEditor, WireColorSwatch \}/);
   assert.match(studio, /target="shield"/);
   assert.match(studio, /updateSelected\(\{ shieldColor \}\)/);
   assert.match(studio, /isShieldConnection \? "shield-connection"/);

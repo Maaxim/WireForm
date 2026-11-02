@@ -252,6 +252,99 @@ does not retain pair pitch or direction and WireViz import cannot reconstruct
 the relationship. Individual User Library wire templates likewise do not embed
 half of a project-level pair.
 
+## Harness Property Editor
+
+Open **Tools → Property Editor** for a near-fullscreen spreadsheet view of the
+current project. Connectors, Cables, Bundles and Conductors share one column and
+editing system. The Conductors table also includes standalone wires. Search is
+case-insensitive, filters match a selected column's value, and header buttons
+sort in either direction using natural designator or numeric length/count/size
+ordering. Large tables render a window of rows rather than mounting every cell.
+
+- Connectors: edit Manufacturer, MPN, Description and multiline Notes.
+- Cables: edit the same metadata, cable Length and shared Wire size.
+- Bundles: edit the same metadata, Default length and shared Wire size.
+- Conductors: edit Label/Signal and Color with the existing solid/bi-color picker.
+  Bundle length edits set an override; **Use bundle default** removes it.
+  Standalone wire length and size are editable. Physical cable conductor lengths
+  and shared cable/bundle conductor sizes remain read-only.
+
+Designators, component types, pin/conductor counts, parent/conductor identities,
+length source and twisted-pair membership remain read-only. Designators still
+use the existing inspector; there is no separate validated rename action to
+reuse here. Individual cable/bundle gauges are not invented: their parent owns
+the single gauge field. Supported sizes include AWG 0–40, 1/0–4/0 and positive
+metric areas such as `0.5 mm²`/`0.5 mm2`. Length inputs reuse the existing positive
+length parser and supported units; empty optional fields remain empty.
+
+Click to focus a cell; double-click or Enter to edit. Enter saves a single-line
+value, Escape cancels, and Tab/Shift+Tab commits and moves to the next/previous
+editable cell. Notes allow Enter for line breaks and Ctrl/⌘+Enter to save.
+Arrow keys move the selection, Home/End move across a row, and Ctrl+Home/End
+move to the first/last cell. Full text is available in cell tooltips and the
+editing control. Invalid drafts show an inline error and are not committed.
+
+Each changed cell uses the existing project update action: one commit is one
+undo step and participates in the normal autosave, inspectors, diagram, reports
+and BOM. Use the dialog's Undo/Redo buttons or Ctrl/⌘+Z outside a text editor.
+Opening, searching, filtering, sorting, scrolling and cancelling do not modify
+the project. There is no spreadsheet database, schema field or separate history.
+Project Files remain untouched.
+
+Use row checkboxes (or Shift-click a range) to select stable component/conductor
+identities. The header checkbox selects **all filtered rows**, including those
+outside the virtualized viewport. Sorting/filtering keeps the selection, and the
+toolbar reports selected, visible and hidden counts. Clear Selection removes
+the whole selection; switching categories clears it to prevent cross-category
+updates. Deleted objects are removed from the current selection.
+
+**Edit Selected** supports multiple properties together. Every field explicitly
+starts at **Leave unchanged**; choose **Set value** or **Clear value** as needed.
+Blank Set inputs require an explicit Clear action, and required colors cannot
+be cleared. Properties must be editable for every selected row: for example,
+mixed physical-cable/bundle conductor selections cannot edit length. Typed
+controls use the same color, wire-size and length rules as single-cell edits.
+
+**Preview Changes** shows old/new values, affected objects and actual changes.
+No-ops are excluded. The preview is paginated at 50 changes per page and requires
+an explicit Apply confirmation. A successful bulk update uses one project
+mutation, one undo entry and the existing autosave. Cancelling, selecting and
+previewing never modify or save the project. Errors reject the entire operation.
+
+Bulk bundle default-length changes preserve conductor overrides. In the
+Conductors category, **Set individual override** creates an explicit override
+even when it equals the current inherited length; **Use bundle default** removes
+it. This distinction is visible in the preview and restored by undo/redo.
+
+**Find & Replace** offers editable text properties only (Manufacturer, MPN,
+Description, Notes and conductor labels), using literal whole-cell or substring
+matching with optional case sensitivity. Replacement text is literal too; `$&`
+and similar characters have no special meaning. It can use selected rows,
+including hidden selections, or all currently filtered rows. Scope identities
+are fixed when the dialog opens. Color/numeric fields, IDs, topology and embedded
+Project Files are never searched or replaced. Empty replacement is allowed for
+optional text. Review matches before confirming the replacement.
+
+The shared `PropertyEditTransaction` layer validates every target/property/value,
+skips no-ops, and stages only affected components before publishing them. It
+does not clone/serialize attachments for intermediate edits. At confirmation it
+resolves identities again and checks reviewed previous values, override source
+and project identity. Stale previews are blocked; **Refresh Preview** recomputes
+the operation against the same scope for another review. Single-cell editing
+still uses the original update path. No separate history or schema is added.
+
+Multi-cell/Excel paste, grouped/pivot views, advanced filters and saved table
+configurations remain outside the current feature.
+
+`npm run test:property-editor` covers shared edits, queries, selection and atomic
+transactions (including stale data and literal replacement).
+`scripts/browser-property-editor-smoke.mjs` verifies production UI integration,
+autosave/history, save/reopen and a 1,200-conductor table with isolated Chrome/CDP.
+Add `--bulk` to that command for multi-field updates, explicit clears, scoped
+replacement, stale-preview rejection, single-step undo/redo and a 300-conductor
+bulk update from a filtered 1,200-row table. The bulk flow is implemented in
+`scripts/browser-property-bulk-smoke.mjs`.
+
 ## Project Files
 
 Choose **Project Files** in the left navigation to add internal engineering

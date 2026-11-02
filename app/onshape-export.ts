@@ -12,6 +12,7 @@ import {
 import { parseWireColor } from "./wire-colors.ts";
 import { parseLengthMillimeters } from "./length.ts";
 import { isValidStripLength } from "./termination.ts";
+import { parseAwgGauge } from "./wire-size.ts";
 
 export type OnshapeExportIssueSeverity = "error" | "warning" | "info";
 
@@ -154,16 +155,14 @@ export function convertGaugeForOnshape(rawGauge: string): OnshapeValueConversion
       errorMessage: "has no wire gauge",
     };
   }
-  const match = /^(?:AWG\s*)?(4\/0|3\/0|2\/0|1\/0|\d{1,2})(?:\s*AWG)?$/i.exec(
-    raw,
-  );
-  if (!match) {
+  const parsed = parseAwgGauge(raw);
+  if (!parsed) {
     return {
       errorCode: "UNSUPPORTED_GAUGE",
       errorMessage: `uses gauge "${raw}", which cannot be safely represented as AWG`,
     };
   }
-  const designation = match[1].toUpperCase();
+  const designation = parsed.designation;
   if (/^\d+$/.test(designation)) {
     const numeric = Number(designation);
     if (!Number.isInteger(numeric) || numeric < 0 || numeric > 40) {
