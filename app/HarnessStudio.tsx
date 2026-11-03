@@ -67,7 +67,7 @@ import {
   serializeBomCsv,
 } from "./bom";
 import {
-  ONSHAPE_CSV_PREVIEW_COLUMNS,
+  ONSHAPE_CSV_COLUMNS,
   buildOnshapeCableWireExport,
   onshapeCsvFilenameForTitle,
   onshapeExportHasErrors,
@@ -5080,7 +5080,7 @@ export function HarnessStudio() {
 
       {onshapeExportOpen && (
         <div
-          className="modal-backdrop"
+          className="modal-backdrop onshape-export-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setOnshapeExportOpen(false);
@@ -5184,17 +5184,20 @@ export function HarnessStudio() {
                     <table>
                       <thead>
                         <tr>
-                          {ONSHAPE_CSV_PREVIEW_COLUMNS.map((column) => (
-                            <th key={column.key}>{column.heading}</th>
+                          {ONSHAPE_CSV_COLUMNS.map((column) => (
+                            <th key={column.key} data-column={column.key}>
+                              {column.heading}
+                            </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {onshapeExport.rows.slice(0, 25).map((row) => (
+                        {onshapeExport.rows.map((row) => (
                           <tr key={row.wireId}>
-                            {ONSHAPE_CSV_PREVIEW_COLUMNS.map((column) => (
+                            {ONSHAPE_CSV_COLUMNS.map((column) => (
                               <td
                                 key={column.key}
+                                data-column={column.key}
                                 title={column.key === "wireId" ? row.wireId : undefined}
                               >
                                 {row[column.key]}
@@ -5205,9 +5208,6 @@ export function HarnessStudio() {
                       </tbody>
                     </table>
                   </div>
-                  {onshapeExport.rows.length > 25 && (
-                    <p>{onshapeExport.rows.length - 25} more rows are not shown.</p>
-                  )}
                 </section>
               )}
 

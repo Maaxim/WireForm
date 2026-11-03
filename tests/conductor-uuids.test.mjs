@@ -72,7 +72,11 @@ test("new standalone, bundle, and multicore conductors receive unique UUID v4 id
     const uuids = uuidList(component);
     assert.ok(uuids.every(isUuidV4));
     assert.ok(uuids.every((uuid) => uuid.length === 36));
-    assert.ok(uuids.every((uuid) => !/^(?:WF-|W\d|B\d|C\d|conductor)/i.test(uuid)));
+    assert.ok(uuids.every((uuid) =>
+      !uuid.includes("WF-") &&
+      !uuid.includes("conductor") &&
+      !uuid.includes(kind),
+    ));
     all.push(...uuids);
   }
   assert.equal(new Set(all).size, all.length);

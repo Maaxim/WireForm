@@ -2506,13 +2506,41 @@ select:focus-visible {
   line-height: 1.55;
 }
 
-.onshape-export-modal {
+.onshape-export-backdrop {
+  padding: 0;
+  overscroll-behavior: contain;
+}
+
+.modal.onshape-export-modal {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(1040px, calc(100vw - 56px));
+  width: 97vw;
+  height: 97vh;
+  height: 97dvh;
+  max-height: 97vh;
+  max-height: 97dvh;
+  min-width: 0;
+  min-height: 0;
+  color: var(--ink);
+  background: var(--panel);
 }
 
 .onshape-export-summary {
   grid-template-columns: repeat(5, 1fr);
+  min-width: 0;
+}
+
+.onshape-export-summary > div {
+  padding: 8px 14px;
+}
+
+.onshape-export-body {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px 16px;
 }
 
 .onshape-export-body > p {
@@ -2526,11 +2554,12 @@ select:focus-visible {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-bottom: 14px;
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .onshape-kind-summary > div {
-  padding: 9px 11px;
+  padding: 7px 10px;
   background: #f7faf9;
   border: 1px solid #dce4e3;
   border-radius: 6px;
@@ -2555,6 +2584,9 @@ select:focus-visible {
 .onshape-issues {
   display: grid;
   gap: 8px;
+  flex: 0 1 auto;
+  max-height: min(180px, 22vh);
+  overflow: auto;
 }
 
 .onshape-issue-group {
@@ -2596,19 +2628,31 @@ select:focus-visible {
 }
 
 .onshape-preview-section {
-  margin-top: 15px;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto;
+  margin: 0;
 }
 
 .onshape-preview-scroll {
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  isolation: isolate;
   border: 1px solid #d7e0df;
   border-radius: 6px;
 }
 
 .onshape-preview-scroll table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 9px;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -2616,6 +2660,7 @@ select:focus-visible {
 .onshape-preview-scroll td {
   padding: 6px 8px;
   text-align: left;
+  white-space: nowrap;
   border-right: 1px solid #e3e9e8;
   border-bottom: 1px solid #e3e9e8;
 }
@@ -2623,21 +2668,63 @@ select:focus-visible {
 .onshape-preview-scroll th {
   position: sticky;
   top: 0;
+  z-index: 3;
   background: #f2f6f5;
 }
 
-.onshape-preview-scroll td:first-child {
-  max-width: 290px;
-  overflow: hidden;
+.onshape-preview-scroll [data-column="wireId"] {
+  width: 310px;
+  min-width: 310px;
+  max-width: 310px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.onshape-preview-scroll th[data-column="wireId"] {
+  left: 0;
+  z-index: 4;
+}
+
+.onshape-preview-scroll td[data-column="wireId"] {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  user-select: text;
+  cursor: text;
+  background: var(--panel);
+}
+
+.onshape-preview-scroll [data-column="fromRef"],
+.onshape-preview-scroll [data-column="fromPin"],
+.onshape-preview-scroll [data-column="toRef"],
+.onshape-preview-scroll [data-column="toPin"],
+.onshape-preview-scroll [data-column="gauge"],
+.onshape-preview-scroll [data-column="insulation"] {
+  min-width: 82px;
+}
+
+.onshape-preview-scroll [data-column="color"] {
+  min-width: 120px;
+}
+
+.onshape-preview-scroll [data-column="fromPartNo"],
+.onshape-preview-scroll [data-column="toPartNo"],
+.onshape-preview-scroll [data-column="fromContactPn"],
+.onshape-preview-scroll [data-column="toContactPn"] {
+  min-width: 190px;
+}
+
+.onshape-preview-scroll [data-column="fromStripLengthMm"],
+.onshape-preview-scroll [data-column="toStripLengthMm"] {
+  min-width: 145px;
 }
 
 .onshape-warning-acknowledgement {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-top: 14px;
+  flex: 0 0 auto;
+  margin-top: 0;
   padding: 10px 12px;
   color: #586970;
   background: #fffaf0;
@@ -2649,6 +2736,38 @@ select:focus-visible {
 
 .onshape-warning-acknowledgement input {
   margin-top: 1px;
+}
+
+@media (max-width: 700px) {
+  .modal.onshape-export-modal {
+    width: calc(100vw - 12px);
+    height: calc(100vh - 12px);
+    height: calc(100dvh - 12px);
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+  }
+
+  .onshape-export-summary {
+    grid-template-columns: repeat(5, minmax(105px, 1fr));
+    overflow-x: auto;
+  }
+
+  .onshape-export-body {
+    padding: 8px;
+  }
+
+  .onshape-kind-summary {
+    grid-template-columns: repeat(3, minmax(145px, 1fr));
+    overflow-x: auto;
+  }
+
+  .onshape-preview-scroll th[data-column="wireId"] {
+    left: auto;
+  }
+
+  .onshape-preview-scroll td[data-column="wireId"] {
+    position: static;
+  }
 }
 
 .library-modal {

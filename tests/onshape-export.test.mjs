@@ -677,8 +677,28 @@ test("Wire IDs are undecorated UUID v4 values", () => {
   assert.ok(ids.every((id) => !id.includes("WF-") && !id.includes("conductor")));
 });
 
+test("large harness exports every conductor without changing row data", () => {
+  const project = createEmptyProject("Large Onshape preview");
+  for (let group = 0; group < 4; group += 1) {
+    const left = addConnector(project, `J${group * 2 + 1}`, 64, `large-left-${group}`);
+    const right = addConnector(project, `J${group * 2 + 2}`, 64, `large-right-${group}`);
+    const cable = addCable(project, "cable", `C${group + 1}`, 64, `large-cable-${group}`);
+    connectAll(project, cable, left, right);
+  }
+  const result = buildOnshapeCableWireExport(project);
+  assert.equal(result.rows.length, 256);
+  assert.equal(new Set(result.rows.map((row) => row.wireId)).size, 256);
+  assert.ok(result.rows.every((row) => isUuidV4(row.wireId)));
+  assert.equal(onshapeExportHasErrors(result), false);
+  assert.equal(
+    serializeOnshapeCableWireCsv(result.rows),
+    serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows),
+  );
+});
+
 test("editor exposes a local preview/download flow with fatal and warning gates", async () => {
   const source = await fs.readFile(new URL("../app/HarnessStudio.tsx", import.meta.url), "utf8");
+  const styles = await fs.readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(source, /aria-label="Export Onshape CSV"/);
   assert.match(source, /buildOnshapeCableWireExport\(project\)/);
   assert.match(source, /serializeOnshapeCableWireCsv\(onshapeExport\.rows\)/);
@@ -692,8 +712,11 @@ test("editor exposes a local preview/download flow with fatal and warning gates"
   assert.match(dialog, /Onshape CSV Export/);
   assert.match(dialog, /Export CSV/);
   assert.match(dialog, /CSV preview/);
-  assert.match(dialog, /onshapeExport\.rows\.slice\(0, 25\)/);
-  assert.match(dialog, /ONSHAPE_CSV_PREVIEW_COLUMNS\.map/);
+  assert.match(dialog, /className="modal-backdrop onshape-export-backdrop"/);
+  assert.match(dialog, /onshapeExport\.rows\.map\(\(row\)/);
+  assert.doesNotMatch(dialog, /onshapeExport\.rows\.slice/);
+  assert.equal((dialog.match(/ONSHAPE_CSV_COLUMNS\.map/g) ?? []).length, 2);
+  assert.match(dialog, /data-column=\{column\.key\}/);
   assert.match(dialog, /title=\{column\.key === "wireId" \? row\.wireId : undefined\}/);
   assert.match(dialog, /\{candidate\.message\}/);
   assert.match(dialog, /onshapeExportHasErrors\(onshapeExport\)/);
@@ -702,4 +725,17 @@ test("editor exposes a local preview/download flow with fatal and warning gates"
     dialog,
     /experimental|unverified|not verified|compatibility|phase\s*\d|planned|coming soon|not implemented|future/i,
   );
+
+  const onshapeStyles = styles.slice(
+    styles.indexOf(".onshape-export-backdrop"),
+    styles.indexOf(".library-modal"),
+  );
+  assert.match(onshapeStyles, /width:\s*97vw/);
+  assert.match(onshapeStyles, /height:\s*97dvh/);
+  assert.match(onshapeStyles, /\.onshape-export-body\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(onshapeStyles, /\.onshape-preview-scroll\s*\{[^}]*overflow:\s*auto/s);
+  assert.match(onshapeStyles, /\.onshape-preview-scroll th\s*\{[^}]*position:\s*sticky[^}]*top:\s*0/s);
+  assert.match(onshapeStyles, /\[data-column="wireId"\]\s*\{[^}]*min-width:\s*310px[^}]*font-family:\s*ui-monospace/s);
+  assert.match(onshapeStyles, /td\[data-column="wireId"\]\s*\{[^}]*user-select:\s*text/s);
+  assert.doesNotMatch(onshapeStyles, /text-overflow:\s*ellipsis/);
 });
