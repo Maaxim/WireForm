@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { bindTopologyWheelZoom, scrollForZoomAnchor, topologyWheelZoom, viewportZoomAnchor } from "../app/topology-zoom.ts";
 
 import {
   boundsHeight,
@@ -19,6 +20,8 @@ import {
   workspaceToWorld,
   worldToScreen,
   worldToWorkspace,
+  MIN_ZOOM,
+  MAX_ZOOM,
 } from "../app/workspace-bounds.ts";
 import {
   createEmptyProject,
@@ -30,6 +33,62 @@ import {
 test("empty layouts retain a comfortable minimum workspace", () => {
   const bounds = getWorkspaceBounds([]);
   assert.deepEqual(bounds, { minX: 0, minY: 0, maxX: 1480, maxY: 820 });
+});
+
+test("topology wheel zoom is proportional, reversible, and uses existing limits", () => {
+  assert.ok(topologyWheelZoom(0.9, -100) > 0.9);
+  assert.ok(topologyWheelZoom(0.9, 100) < 0.9);
+  assert.ok(Math.abs(topologyWheelZoom(topologyWheelZoom(0.6, -100), 100) - 0.6) < 1e-12);
+  assert.equal(topologyWheelZoom(MAX_ZOOM, -10000), MAX_ZOOM);
+  assert.equal(topologyWheelZoom(MIN_ZOOM, 10000), MIN_ZOOM);
+  assert.equal(topologyWheelZoom(0.9, 0), 0.9);
+  assert.ok(topologyWheelZoom(0.6, -10000) < 0.9, "extreme deltas do not cause giant jumps");
+});
+
+test("cursor anchor survives zoom after pan, negative bounds, and viewport relocation", () => {
+  const origin = { x: -700, y: -300 };
+  const pointer = { x: 250, y: 175 };
+  const anchor = viewportZoomAnchor(pointer, { x: 420, y: 290 }, 0.8, origin);
+  for (const zoom of [MIN_ZOOM, 0.9, MAX_ZOOM]) {
+    const scroll = scrollForZoomAnchor(anchor, zoom, origin);
+    const result = viewportZoomAnchor(pointer, scroll, zoom, origin);
+    assert.deepEqual(result.worldPoint, anchor.worldPoint);
+  }
+  const nextOrigin = { x: -900, y: -600 };
+  assert.deepEqual(viewportZoomAnchor(pointer, scrollForZoomAnchor(anchor, 1, nextOrigin), 1, nextOrigin).worldPoint, anchor.worldPoint);
+});
+
+test("topology wheel listener is local, cancelable, normalized, coalesced, and cleaned up", () => {
+  const oldRequest = globalThis.requestAnimationFrame, oldCancel = globalThis.cancelAnimationFrame;
+  const frames = new Map(); let frameId = 0;
+  globalThis.requestAnimationFrame = (callback) => { frames.set(++frameId, callback); return frameId; };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  try {
+    const viewport = new EventTarget(), outside = new EventTarget(), calls = [];
+    viewport.clientHeight = 600;
+    const dispatch = (target, options = {}) => {
+      const { cancelable = true, ...values } = options;
+      const event = new Event("wheel", { cancelable });
+      Object.assign(event, { ctrlKey: true, deltaY: -10, deltaMode: 0, clientX: 350, clientY: 260, ...values });
+      target.dispatchEvent(event); return event;
+    };
+    const cleanup = bindTopologyWheelZoom(viewport, (...args) => calls.push(args));
+    assert.equal(dispatch(viewport, { ctrlKey: false }).defaultPrevented, false);
+    assert.equal(dispatch(outside).defaultPrevented, false);
+    assert.equal(dispatch(viewport, { deltaY: 0 }).defaultPrevented, false);
+    assert.equal(frames.size, 0);
+    assert.equal(dispatch(viewport, { deltaMode: 1, deltaY: -1 }).defaultPrevented, true);
+    dispatch(viewport, { deltaMode: 2, deltaY: -1, clientX: 400 });
+    assert.equal(frames.size, 1, "one viewport update per animation frame");
+    const render = [...frames.values()][0]; frames.clear(); render();
+    assert.deepEqual(calls, [[-616, { x: 400, y: 260 }]]);
+    assert.equal(dispatch(viewport, { cancelable: false }).defaultPrevented, false);
+    cleanup(); assert.equal(frames.size, 0, "pending frame canceled on unmount");
+    assert.equal(dispatch(viewport).defaultPrevented, false, "listener removed on unmount");
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.requestAnimationFrame = oldRequest; globalThis.cancelAnimationFrame = oldCancel;
+  }
 });
 
 test("content bounds union actual component dimensions and add world-space margin", () => {

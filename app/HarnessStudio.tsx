@@ -246,6 +246,7 @@ import {
   type Bounds,
   type LayoutRect,
 } from "./workspace-bounds";
+import { bindTopologyWheelZoom, scrollForZoomAnchor, topologyWheelZoom, viewportZoomAnchor, type ViewportZoomAnchor } from "./topology-zoom";
 
 interface ValidationResult {
   errors: string[];
@@ -984,6 +985,7 @@ export function HarnessStudio() {
   const pasteSequenceRef = useRef(0);
   const dragDidMoveRef = useRef(false);
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
+  const canvasZoomAnchorRef = useRef<ViewportZoomAnchor | null>(null);
   const connectionTooltipRef = useRef<HTMLDivElement | null>(null);
   const connectionTooltipPositionRef = useRef({ x: 0, y: 0 });
   const previousCanvasViewRef = useRef<{
@@ -1161,7 +1163,13 @@ export function HarnessStudio() {
     const viewport = canvasScrollRef.current;
     if (!viewport) return;
     const previous = previousCanvasViewRef.current;
-    if (!previous) {
+    const anchor = canvasZoomAnchorRef.current;
+    canvasZoomAnchorRef.current = null;
+    if (anchor) {
+      const scroll = scrollForZoomAnchor(anchor, zoom, { x: workspaceBounds.minX, y: workspaceBounds.minY });
+      viewport.scrollLeft = scroll.x;
+      viewport.scrollTop = scroll.y;
+    } else if (!previous) {
       viewport.scrollLeft = Math.max(0, -workspaceBounds.minX * zoom);
       viewport.scrollTop = Math.max(0, -workspaceBounds.minY * zoom);
     } else {
@@ -1178,6 +1186,24 @@ export function HarnessStudio() {
     }
     previousCanvasViewRef.current = { bounds: workspaceBounds, zoom };
   }, [workspaceBounds, zoom]);
+
+  useEffect(() => {
+    const viewport = canvasScrollRef.current;
+    if (!viewport) return;
+    return bindTopologyWheelZoom(viewport, (delta, pointer) => {
+      const view = previousCanvasViewRef.current;
+      if (!view) return;
+      const nextZoom = topologyWheelZoom(view.zoom, delta);
+      if (nextZoom === view.zoom) return;
+      const rect = viewport.getBoundingClientRect();
+      canvasZoomAnchorRef.current = viewportZoomAnchor(
+        { x: pointer.x - rect.left - viewport.clientLeft, y: pointer.y - rect.top - viewport.clientTop },
+        { x: viewport.scrollLeft, y: viewport.scrollTop }, view.zoom,
+        { x: view.bounds.minX, y: view.bounds.minY },
+      );
+      setZoom(nextZoom);
+    });
+  }, []);
 
   const commitProject = useCallback(
     (next: HarnessProject, message?: string) => {
@@ -2104,6 +2130,7 @@ export function HarnessStudio() {
   const zoomToFit = () => {
     const viewport = canvasScrollRef.current;
     if (!viewport) return;
+    canvasZoomAnchorRef.current = null;
     const targetBounds = contentBounds ?? workspaceBounds;
     const fit = fitBoundsToViewport(
       targetBounds,

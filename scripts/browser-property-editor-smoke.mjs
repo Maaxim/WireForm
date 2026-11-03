@@ -85,7 +85,10 @@ try {
   await command("Emulation.setDeviceMetricsOverride", { width: 1700, height: 1050, deviceScaleFactor: 1, mobile: false });
   await command("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: output });
   await saved(); await evaluate("window.confirm=()=>true");
-  if (process.argv.includes("--insulation")) {
+  if (process.argv.includes("--topology-zoom")) {
+    const { runTopologyZoomChecks } = await import("./browser-topology-zoom-smoke.mjs");
+    await runTopologyZoomChecks({ command, evaluate, click, load, saved, readProject, flush, output, exceptions });
+  } else if (process.argv.includes("--insulation")) {
     const { runInsulationChecks } = await import("./browser-insulation-smoke.mjs");
     await runInsulationChecks({ command, evaluate, click, setValue, key, openEditor, waitFor, saved, readProject, load, tab, flush, output, exceptions });
   } else if (process.argv.includes("--bulk")) {

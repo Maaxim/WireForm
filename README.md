@@ -69,7 +69,11 @@ machine.
    header to move the group; use <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>C</kbd> and
    <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd> to copy and paste. The workspace
    expands automatically as components move in any direction; use **Zoom to
-   fit harness** in the canvas toolbar to frame the complete layout.
+   fit harness** in the canvas toolbar to frame the complete layout. In
+   **Harness topology**, hold <kbd>Ctrl</kbd> and scroll to zoom around the
+   pointer using the same 25–125% range as the toolbar. Ordinary wheel scrolling
+   and browser zoom outside the topology viewport remain unchanged. Zoom and
+   pan do not modify or autosave the project.
 5. Optionally upload a connector photo from the connector inspector. WireForm
    resizes it locally and embeds it in the editable project, user-library
    templates, topology canvas, and local WireViz preview.
