@@ -6,6 +6,7 @@ import {
 } from "./connection-topology.ts";
 import {
   CABLE_KINDS,
+  isUuidV4,
   type HarnessComponent,
   type HarnessProject,
 } from "./model.ts";
@@ -126,21 +127,9 @@ function componentMemberLabel(connection: ResolvedPhysicalConnection) {
     : `${connection.conductor.designator} conductor ${connection.conductor.conductorNumber}`;
 }
 
-function stableIdentityPart(value: string) {
-  if (/^[A-Za-z0-9._-]+$/.test(value)) {
-    return `s${value.length}-${value}`;
-  }
-  const bytes = new TextEncoder().encode(value);
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `h${hex.length}-${hex}`;
-}
-
-/** Creates an Onshape-safe ID from persistent model IDs, never array indexes. */
-export function onshapeWireId(
-  componentId: string,
-  conductorId: string,
-) {
-  return `WF-${stableIdentityPart(componentId)}-${stableIdentityPart(conductorId)}`;
+/** Returns the physical conductor's already-persistent UUID without decoration. */
+export function onshapeWireId(conductorUuid: string) {
+  return conductorUuid;
 }
 
 export interface OnshapeValueConversion {
@@ -329,6 +318,7 @@ export function buildOnshapeCableWireExport(
     const rowIssues: OnshapeExportIssue[] = [];
     const component = components.get(connection.conductor.componentId);
     const conductorId = connection.conductor.conductorId?.trim();
+    const conductorUuid = connection.conductor.uuid?.trim();
     if (!component || !CABLE_KINDS.includes(component.kind)) {
       rowIssues.push(
         issue(
@@ -345,6 +335,25 @@ export function buildOnshapeCableWireExport(
           "error",
           "MISSING_STABLE_CONDUCTOR_ID",
           `${label} has no persistent conductor identity; array position is not a safe export ID.`,
+          connection,
+        ),
+      );
+    }
+    if (!conductorUuid) {
+      rowIssues.push(
+        issue(
+          "error",
+          "MISSING_CONDUCTOR_UUID",
+          `${label} has no persistent UUID v4 identity. Reopen the project to migrate its conductor identities.`,
+          connection,
+        ),
+      );
+    } else if (!isUuidV4(conductorUuid)) {
+      rowIssues.push(
+        issue(
+          "error",
+          "INVALID_CONDUCTOR_UUID",
+          `${label} has invalid conductor UUID "${conductorUuid}". Reopen the project to repair it.`,
           connection,
         ),
       );
@@ -388,6 +397,8 @@ export function buildOnshapeCableWireExport(
       rowIssues.length ||
       !component ||
       !conductorId ||
+      !conductorUuid ||
+      !isUuidV4(conductorUuid) ||
       !gauge.value ||
       !color.value ||
       connection.from.physicalPin === undefined ||
@@ -410,7 +421,7 @@ export function buildOnshapeCableWireExport(
     candidates.push({
       connection,
       row: {
-        wireId: onshapeWireId(component.id, conductorId),
+        wireId: onshapeWireId(conductorUuid),
         fromRef: connection.from.connectorDesignator,
         fromPin: String(connection.from.physicalPin),
         toRef: connection.to.connectorDesignator,

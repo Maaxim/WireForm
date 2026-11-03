@@ -1,7 +1,7 @@
 import { normalizeProjectAttachments } from "./project-files.ts";
 import { readOptionalNonNegativeNumber } from "./numeric-property.ts";
 
-export const PROJECT_SCHEMA_VERSION = 4 as const;
+export const PROJECT_SCHEMA_VERSION = 5 as const;
 export const PROJECT_FILE_FORMAT = "wireform-project";
 
 export type ComponentKind =
@@ -119,6 +119,8 @@ export interface HarnessComponent {
   pinLabels: string[];
   wireLabels: string[];
   conductorIds: string[];
+  /** Persistent UUID v4 identities keyed by the internal conductor ID. */
+  conductorUuids?: Record<string, string>;
   conductorLengthOverrides?: Record<string, string>;
   colors: string[];
   gauge: string;
@@ -191,6 +193,7 @@ export interface ProjectFile {
 export interface ParsedProjectFile {
   project: HarnessProject;
   migratedFrom?: number;
+  repairedConductorUuids?: number;
 }
 
 export const CONNECTOR_KINDS: ComponentKind[] = [
@@ -254,6 +257,119 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 10)}`;
+}
+
+export const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function isUuidV4(value: unknown): value is string {
+  return typeof value === "string" && UUID_V4_PATTERN.test(value);
+}
+
+/** Creates an unprefixed, cryptographically secure UUID for a physical conductor. */
+export function createConductorUuid() {
+  const uuid = globalThis.crypto?.randomUUID?.().toLowerCase();
+  if (!uuid || !isUuidV4(uuid)) {
+    throw new Error("This environment cannot generate secure conductor UUIDs.");
+  }
+  return uuid;
+}
+
+function freshConductorUuid(used: ReadonlySet<string>) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const uuid = createConductorUuid();
+    if (!used.has(uuid)) return uuid;
+  }
+  throw new Error("Unable to generate a unique conductor UUID.");
+}
+
+export function createConductorUuidMap(
+  conductorIds: readonly string[],
+  used: ReadonlySet<string> = new Set(),
+) {
+  const assigned = new Set(used);
+  return Object.fromEntries(
+    conductorIds.map((conductorId) => {
+      const uuid = freshConductorUuid(assigned);
+      assigned.add(uuid);
+      return [conductorId, uuid];
+    }),
+  );
+}
+
+export function getConductorUuid(
+  component: HarnessComponent,
+  conductorId: string,
+) {
+  return component.conductorUuids?.[conductorId];
+}
+
+export interface ConductorUuidIssue {
+  code: "MISSING_CONDUCTOR_UUID" | "INVALID_CONDUCTOR_UUID" | "DUPLICATE_CONDUCTOR_UUID";
+  componentId: string;
+  conductorId: string;
+  uuid?: string;
+}
+
+/** Project-level identity validation; it never changes project state. */
+export function validateProjectConductorUuids(
+  project: HarnessProject,
+): ConductorUuidIssue[] {
+  const issues: ConductorUuidIssue[] = [];
+  const owners = new Map<string, string>();
+  for (const component of project.components) {
+    if (!CABLE_KINDS.includes(component.kind)) continue;
+    for (const conductorId of component.conductorIds.slice(0, component.wireCount)) {
+      const uuid = getConductorUuid(component, conductorId);
+      if (!uuid) {
+        issues.push({ code: "MISSING_CONDUCTOR_UUID", componentId: component.id, conductorId });
+        continue;
+      }
+      if (!isUuidV4(uuid)) {
+        issues.push({ code: "INVALID_CONDUCTOR_UUID", componentId: component.id, conductorId, uuid });
+        continue;
+      }
+      const owner = owners.get(uuid);
+      if (owner) {
+        issues.push({ code: "DUPLICATE_CONDUCTOR_UUID", componentId: component.id, conductorId, uuid });
+      } else {
+        owners.set(uuid, `${component.id}/${conductorId}`);
+      }
+    }
+  }
+  return issues;
+}
+
+/** Repairs legacy/malformed identity data in stable component/conductor order. */
+export function repairProjectConductorUuids(project: HarnessProject) {
+  const used = new Set<string>();
+  let repaired = 0;
+  for (const component of project.components) {
+    if (!CABLE_KINDS.includes(component.kind)) {
+      if (component.conductorUuids) {
+        delete component.conductorUuids;
+        repaired += 1;
+      }
+      continue;
+    }
+    const next: Record<string, string> = {};
+    for (const conductorId of component.conductorIds.slice(0, component.wireCount)) {
+      const candidate = component.conductorUuids?.[conductorId];
+      const uuid = isUuidV4(candidate) && !used.has(candidate)
+        ? candidate
+        : freshConductorUuid(used);
+      if (uuid !== candidate) repaired += 1;
+      next[conductorId] = uuid;
+      used.add(uuid);
+    }
+    if (
+      Object.keys(component.conductorUuids ?? {}).length !== Object.keys(next).length ||
+      Object.entries(next).some(([id, uuid]) => component.conductorUuids?.[id] !== uuid)
+    ) {
+      component.conductorUuids = next;
+    }
+  }
+  return repaired;
 }
 
 export function createAdditionalComponentId() {
@@ -590,6 +706,9 @@ export function makeComponent(
     junction: "N",
   };
   const count = counts[kind];
+  const conductorIds = CABLE_KINDS.includes(kind)
+    ? Array.from({ length: count }, () => createConductorId())
+    : [];
   return {
     id,
     kind,
@@ -605,9 +724,10 @@ export function makeComponent(
     wireLabels: CABLE_KINDS.includes(kind)
       ? Array.from({ length: count }, () => "")
       : [],
-    conductorIds: CABLE_KINDS.includes(kind)
-      ? Array.from({ length: count }, () => createConductorId())
-      : [],
+    conductorIds,
+    ...(conductorIds.length
+      ? { conductorUuids: createConductorUuidMap(conductorIds) }
+      : {}),
     colors: CABLE_KINDS.includes(kind)
       ? Array.from(
           { length: count },
@@ -678,7 +798,9 @@ function normalizeComponent(
     ? readOptionalNonNegativeNumber(source.insulationThicknessMm, `${source.designator ?? id} Insulation Thickness`)
     : undefined;
   const rawConductorIds = stringList(source.conductorIds).slice(0, wireCount);
+  const rawConductorUuids = recordValue(source.conductorUuids);
   const conductorIds: string[] = [];
+  const conductorUuids: Record<string, string> = {};
   const usedConductorIds = new Set<string>();
   for (let conductorIndex = 0; conductorIndex < wireCount; conductorIndex += 1) {
     const candidate = rawConductorIds[conductorIndex]?.trim();
@@ -693,6 +815,8 @@ function normalizeComponent(
       candidate && !usedConductorIds.has(candidate) ? candidate : fallback;
     conductorIds.push(conductorId);
     usedConductorIds.add(conductorId);
+    const rawUuid = rawConductorUuids?.[candidate ?? conductorId];
+    if (typeof rawUuid === "string") conductorUuids[conductorId] = rawUuid;
   }
   const rawLengthOverrides =
     kind === "bundle" ? recordValue(source.conductorLengthOverrides) : undefined;
@@ -729,6 +853,7 @@ function normalizeComponent(
     pinLabels: stringList(source.pinLabels).slice(0, pinCount),
     wireLabels: stringList(source.wireLabels).slice(0, wireCount),
     conductorIds,
+    ...(wireCount ? { conductorUuids } : { conductorUuids: undefined }),
     ...(Object.keys(conductorLengthOverrides).length
       ? { conductorLengthOverrides }
       : {}),
@@ -903,11 +1028,13 @@ export function normalizeProject(value: unknown): ParsedProjectFile {
     links,
     twistedPairs,
   };
+  const repairedConductorUuids = repairProjectConductorUuids(project);
   return {
     project,
     ...(originalVersion < PROJECT_SCHEMA_VERSION
       ? { migratedFrom: originalVersion }
       : {}),
+    ...(repairedConductorUuids ? { repairedConductorUuids } : {}),
   };
 }
 

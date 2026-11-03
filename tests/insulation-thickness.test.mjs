@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cloneProject, createEmptyProject, makeComponent, normalizeProject, parseProjectFile, serializeProjectFile } from "../app/model.ts";
+import { cloneProject, createConductorUuidMap, createEmptyProject, makeComponent, normalizeProject, parseProjectFile, serializeProjectFile } from "../app/model.ts";
 import { componentToTemplate, createLibraryCollection, instantiateTemplate, parseLibraryFile, serializeLibraryBackup } from "../app/library.ts";
 import { getConductorInsulationThickness } from "../app/insulation-thickness.ts";
 import { formatNumericProperty, parseOptionalNonNegativeNumberInput, validateOptionalNonNegativeNumberInput } from "../app/numeric-property.ts";
@@ -18,6 +18,7 @@ function fixture() {
   for (const [kind, id, designator, count] of [["wire", "w1", "W1", 1], ["bundle", "b1", "B1", 4], ["cable", "c1", "C1", 8], ["wire", "w2", "W2", 1]]) {
     const component = makeComponent(kind, 1, id); component.designator = designator; component.wireCount = count;
     component.conductorIds = Array.from({ length: count }, (_, index) => `${id}-c${index + 1}`);
+    component.conductorUuids = createConductorUuidMap(component.conductorIds);
     component.colors = Array.from({ length: count }, (_, index) => index % 2 ? "WHBU" : "BUWH");
     component.wireLabels = Array.from({ length: count }, () => "CAN");
     project.components.push(component);
@@ -147,11 +148,11 @@ test("14-column CSV appends plain numeric mm for all physical sources without ch
     assert.equal(typeof insulation, "string");
   }
   const expected = new Map(resolvePhysicalConnections(project).map((connection) => [
-    onshapeWireId(connection.conductor.componentId, connection.conductor.conductorId), formatNumericProperty(component(project, connection.conductor.componentId).insulationThicknessMm),
+    onshapeWireId(connection.conductor.uuid), formatNumericProperty(component(project, connection.conductor.componentId).insulationThicknessMm),
   ]));
   for (const row of result.rows) assert.equal(row.insulation, expected.get(row.wireId));
   for (const parent of project.components.filter((component) => component.wireCount)) {
-    const ids = new Set(parent.conductorIds.map((id) => onshapeWireId(parent.id, id)));
+    const ids = new Set(parent.conductorIds.map((id) => onshapeWireId(parent.conductorUuids[id])));
     const exported = result.rows.filter((row) => ids.has(row.wireId));
     assert.equal(exported.length, parent.wireCount);
   }
@@ -160,7 +161,7 @@ test("14-column CSV appends plain numeric mm for all physical sources without ch
   assert.equal(ONSHAPE_CSV_PREVIEW_COLUMNS.at(-1).key, "insulation");
   for (const value of [undefined, 0, 0.127, 1e-7]) {
     component(project, "w1").insulationThicknessMm = value;
-    const row = buildOnshapeCableWireExport(project).rows.find((row) => row.wireId === onshapeWireId("w1", "w1-c1"));
+    const row = buildOnshapeCableWireExport(project).rows.find((row) => row.wireId === onshapeWireId(component(project, "w1").conductorUuids["w1-c1"]));
     assert.equal(row.insulation, formatNumericProperty(value)); assert.doesNotMatch(row.insulation, /mm|,|e/);
   }
 });

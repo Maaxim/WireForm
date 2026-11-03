@@ -139,13 +139,16 @@ import {
   connectorShieldPortId,
   connectorShieldTerminationIdFromPort,
   createConductorId,
+  createConductorUuidMap,
   createConnectorShieldTerminationId,
   createEmptyProject,
   makeComponent,
   normalizeProject,
   parseProjectFile,
+  repairProjectConductorUuids,
   remapTopologyLink,
   serializeProjectFile,
+  validateProjectConductorUuids,
   type AdditionalComponent,
   type AdditionalComponentPlacement,
   type ApprovedPartAlternative,
@@ -452,7 +455,7 @@ function createStarterProject(): HarnessProject {
     );
   }
 
-  return {
+  const project: HarnessProject = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     projectId: "project-starter",
     title: "CAN Sensor Harness",
@@ -464,6 +467,8 @@ function createStarterProject(): HarnessProject {
     links,
     twistedPairs: [],
   };
+  repairProjectConductorUuids(project);
+  return project;
 }
 
 function listForCount(values: string[], count: number, fallback: string) {
@@ -768,6 +773,24 @@ function validateProject(project: HarnessProject): ValidationResult {
   warnings.push(...validateConnectorPinLabels(project));
   errors.push(...validateConnectorShieldTerminations(project));
   warnings.push(...validateWireColors(project));
+  for (const identityIssue of validateProjectConductorUuids(project)) {
+    const component = project.components.find(
+      (candidate) => candidate.id === identityIssue.componentId,
+    );
+    const conductorNumber = component
+      ? component.conductorIds.indexOf(identityIssue.conductorId) + 1
+      : 0;
+    const label = component
+      ? `${component.designator} conductor ${Math.max(1, conductorNumber)}`
+      : identityIssue.componentId;
+    errors.push(
+      identityIssue.code === "MISSING_CONDUCTOR_UUID"
+        ? `${label} has no persistent UUID.`
+        : identityIssue.code === "INVALID_CONDUCTOR_UUID"
+          ? `${label} has an invalid persistent UUID.`
+          : `${label} duplicates another physical conductor UUID.`,
+    );
+  }
 
   for (const link of project.links) {
     let linkEndpointsValid = true;
@@ -1288,6 +1311,7 @@ export function HarnessStudio() {
         pinLabels: [...component.pinLabels],
         wireLabels: [...component.wireLabels],
         conductorIds,
+        conductorUuids: createConductorUuidMap(conductorIds),
         conductorLengthOverrides: remapBundleConductorLengthOverrides(
           component.conductorLengthOverrides,
           simpleConductorIdMap,
@@ -1330,6 +1354,7 @@ export function HarnessStudio() {
     next.components.push(...pastedComponents);
     next.links.push(...pastedLinks);
     next.twistedPairs.push(...pastedPairs);
+    repairProjectConductorUuids(next);
     commitProject(
       next,
       `Pasted ${pastedComponents.length} component${
@@ -1379,7 +1404,10 @@ export function HarnessStudio() {
             restored.project,
             restored.migratedFrom
               ? `Recovered the local autosave and migrated it from schema ${restored.migratedFrom}.`
+              : restored.repairedConductorUuids
+                ? `Recovered the local autosave and repaired ${restored.repairedConductorUuids} conductor UUID ${restored.repairedConductorUuids === 1 ? "identity" : "identities"}.`
               : "Recovered the most recent local autosave.",
+            Boolean(restored.migratedFrom || restored.repairedConductorUuids),
           );
         } catch (error) {
           restoreFailed = true;
@@ -1909,6 +1937,19 @@ export function HarnessStudio() {
           { length: nextCount },
           (_, index) => node.conductorIds[index] ?? createConductorId(),
         );
+        const retainedUuids = Object.fromEntries(
+          node.conductorIds.flatMap((conductorId) => {
+            const uuid = node.conductorUuids?.[conductorId];
+            return uuid ? [[conductorId, uuid]] : [];
+          }),
+        );
+        const missingIds = node.conductorIds.filter(
+          (conductorId) => !retainedUuids[conductorId],
+        );
+        node.conductorUuids = {
+          ...retainedUuids,
+          ...createConductorUuidMap(missingIds, new Set(Object.values(retainedUuids))),
+        };
         if (node.kind === "bundle" && node.conductorLengthOverrides) {
           node.conductorLengthOverrides = Object.fromEntries(
             Object.entries(node.conductorLengthOverrides).filter(([conductorId]) =>
@@ -1932,6 +1973,7 @@ export function HarnessStudio() {
             new Set([node.id]),
           );
         }
+        repairProjectConductorUuids(draft);
       }
       draft.links = draft.links.filter((link) =>
         [link.from, link.to].every((port) => {
@@ -1965,6 +2007,7 @@ export function HarnessStudio() {
     updateProject(
       (draft) => {
         draft.components.push(node);
+        repairProjectConductorUuids(draft);
       },
       `${KIND_META[kind].singular} added. Connect its ports to continue.`,
     );
@@ -2454,7 +2497,10 @@ export function HarnessStudio() {
           ? "Project opened. Existing Project Files exceed upload limits and were preserved; review them in Project Files."
           : parsed.migratedFrom
           ? `Project opened and migrated from schema ${parsed.migratedFrom}.`
+          : parsed.repairedConductorUuids
+          ? `Project opened and repaired ${parsed.repairedConductorUuids} conductor UUID ${parsed.repairedConductorUuids === 1 ? "identity" : "identities"}. Save the project to persist the repair.`
           : "Editable WireForm project opened.",
+        Boolean(parsed.migratedFrom || parsed.repairedConductorUuids),
       );
     } catch (error) {
       setNotice(
@@ -2720,6 +2766,7 @@ export function HarnessStudio() {
     updateProject(
       (draft) => {
         draft.components.push(node);
+        repairProjectConductorUuids(draft);
         for (const pair of twistedPairs) {
           pair.designator = allocateTwistedPairDesignator(draft.twistedPairs);
           draft.twistedPairs.push(pair);
@@ -5146,7 +5193,12 @@ export function HarnessStudio() {
                         {onshapeExport.rows.slice(0, 25).map((row) => (
                           <tr key={row.wireId}>
                             {ONSHAPE_CSV_PREVIEW_COLUMNS.map((column) => (
-                              <td key={column.key}>{row[column.key]}</td>
+                              <td
+                                key={column.key}
+                                title={column.key === "wireId" ? row.wireId : undefined}
+                              >
+                                {row[column.key]}
+                              </td>
                             ))}
                           </tr>
                         ))}

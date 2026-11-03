@@ -4,6 +4,7 @@ import {
   CONNECTOR_KINDS,
   type HarnessComponent,
   type HarnessProject,
+  getConductorUuid,
   type PortRef,
   type TopologyLink,
   type WireTermination,
@@ -44,6 +45,7 @@ export interface ResolvedPhysicalConductor extends PhysicalConnectionMemberRef {
   kind: "wire" | "cable-conductor" | "bundle-conductor";
   designator: string;
   conductorId?: string;
+  uuid?: string;
   label: string;
   colorCode: string;
 }
@@ -156,13 +158,17 @@ function conductorModel(
   component: HarnessComponent,
   conductorIndex: number,
 ): ResolvedPhysicalConductor {
+  const conductorId = component.conductorIds[conductorIndex];
   return {
     kind: conductorKind(component),
     componentId: component.id,
     designator: component.designator,
     conductorNumber: conductorIndex + 1,
-    ...(component.conductorIds[conductorIndex]
-      ? { conductorId: component.conductorIds[conductorIndex] }
+    ...(conductorId
+      ? { conductorId }
+      : {}),
+    ...(conductorId && getConductorUuid(component, conductorId)
+      ? { uuid: getConductorUuid(component, conductorId) }
       : {}),
     label: component.wireLabels[conductorIndex]?.trim() ?? "",
     colorCode: component.colors[conductorIndex]?.trim() ?? "",

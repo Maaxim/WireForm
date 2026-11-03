@@ -29,7 +29,7 @@ function reopen(project) { return model.parseProjectFile(model.serializeProjectF
 test("legacy schema-4 and empty projects have no required attachment property", () => {
   const project = model.createEmptyProject();
   const restored = reopen(project);
-  assert.equal(restored.schemaVersion, 4);
+  assert.equal(restored.schemaVersion, 5);
   assert.deepEqual(restored.attachments ?? [], []);
   assert.equal(Object.hasOwn(restored, "attachments"), false);
 });

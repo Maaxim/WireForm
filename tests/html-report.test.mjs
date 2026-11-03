@@ -123,7 +123,7 @@ test("report model maps metadata and naturally orders components", () => {
     revision: 'B "release"',
     company: "Müller & Söhne",
     notes: "",
-    schemaVersion: 4,
+    schemaVersion: 5,
   });
   assert.deepEqual(
     value.connectors.map((item) => item.designator),

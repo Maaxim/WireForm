@@ -129,15 +129,23 @@ For non-directional conductors, reuse the same deterministic endpoint ordering a
 
 ### Identity / stable Wire ID
 
+WireForm now stores one lowercase UUID v4 per physical conductor and exports that
+value directly, without prefixes or component/conductor fragments. The UUID is
+created with the conductor, survives ordinary edits and project copies, and is
+regenerated for component copy/paste and library instantiation.
+
 Requirements:
 
 - Unique across every exported conductor in the file.
 - Stable across repeated exports, reordering conductors, and changing UI layout.
-- Based on the existing persistent conductor identity wherever possible.
-- Readable when practical, but **never use a transient array index as identity**.
+- Stored against the existing persistent internal conductor identity, never an endpoint.
+- Standard UUID v4 format; **never use a transient array index as identity**.
 - Detect collisions and reject affected export; do not silently add random suffixes.
 
-Illustrative labels (`W1-01`, `W1-02`) are **not sufficient** if `01/02` refer to unstable array positions. Prefer an existing stable member ID with a deterministic, safe encoding. Record any trade-off (e.g. bundle designator renaming changes visible external ID). Do not add persistent ID fields without inspecting existing identity infrastructure. If no adequate stable identity exists, document the blocker and implement the smallest safe approach; do not claim stability falsely.
+Schema-5 loading assigns missing UUIDs and repairs invalid or duplicate UUIDs in
+stable project order, preserving the first valid occurrence. Saving persists the
+migration. Existing Onshape imports that used the former composite `WF-...` IDs
+may need to be remapped once; all subsequent exports retain the UUID identities.
 
 ### Gauge / wire geometry
 
@@ -417,7 +425,7 @@ Do not add these to the Phase 1 CSV without verified support:
 |---|---|
 | Current WireForm checkout commit / branch | `5373fc4` on `maxim/new_features`; implementation performed without reverting the existing dirty report auto-fit worktree changes. |
 | Existing topology resolver reused | `resolvePhysicalConnections(...)` from `app/connection-topology.ts`, including the same deterministic endpoint normalization used by Connection Mapping. No SVG, diagram-label or report parsing is used. |
-| Stable conductor ID scheme | Each Wire ID is derived only from persistent component ID + persistent conductor ID using an unambiguous safe encoding. Array indexes are not identities. Duplicate generated IDs are fatal and all colliding rows are excluded. |
+| Stable conductor ID scheme | Each Wire ID is the physical conductor's persisted UUID v4. The UUID map is keyed by the existing persistent internal conductor ID, not endpoints or array position. Legacy missing/invalid/duplicate values are repaired on load; exporter-side generation is forbidden. |
 | FeatureScript document and pinned version inspected | Public document URL was requested on 2026-10-28, but returned only the Onshape sign-in application shell (`clientPackageVersion 1.222.1792700711272`). The anonymous API request returned HTTP 401, so the current FeatureScript source/parser and its pinned feature version could not be inspected. The public development thread reports release 1.221 on 2026-10-06 and two-color support in 1.217.0, but does not publish the CSV value grammar. |
 | CSV headers and optional fields | User confirmed successful exporter operation with Onshape on 2026-10-30 and additional-column selection. The single export now emits the 14-column schema in §5, preserving those original fields and appending optional radial conductor Insulation in mm. |
 | Exact AWG/gauge encoding | The established conversion accepts explicit AWG forms (`24 AWG`, `AWG 24`, `24`, and `1/0` through `4/0`) and emits the bare designation in `Gauge`; metric/unknown values remain fatal. No diameter/area is inferred, and no compatibility disclaimer is emitted. |

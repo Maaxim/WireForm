@@ -1,6 +1,7 @@
 import {
   CABLE_KINDS,
   CONNECTOR_KINDS,
+  createConductorUuidMap,
   createTwistedPairId,
   makeComponent,
   normalizeAdditionalComponents,
@@ -28,7 +29,7 @@ export type DuplicateMode = "keep" | "replace" | "skip";
 export interface ComponentTemplate {
   id: string;
   name: string;
-  component: Omit<HarnessComponent, "id" | "x" | "y">;
+  component: Omit<HarnessComponent, "id" | "x" | "y" | "conductorUuids">;
   twistedPairs?: TwistedPair[];
   createdAt: string;
   updatedAt: string;
@@ -96,6 +97,7 @@ export function componentToTemplate(
     id: _id,
     x: _x,
     y: _y,
+    conductorUuids: _conductorUuids,
     ...templateComponent
   } = structuredClone(component);
   const timestamp = now();
@@ -536,6 +538,7 @@ export function instantiateTemplateWithRelationships(
   ).terminations;
   const oldConductorIds = [...component.conductorIds];
   component.conductorIds = component.conductorIds.map(() => createId("conductor"));
+  component.conductorUuids = createConductorUuidMap(component.conductorIds);
   const conductorIds = new Map(
     oldConductorIds.map((id, conductorIndex) => [
       id,

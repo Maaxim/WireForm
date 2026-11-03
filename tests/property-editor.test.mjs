@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { cloneProject, createEmptyProject, makeComponent, parseProjectFile, serializeProjectFile } from "../app/model.ts";
+import { cloneProject, createConductorUuidMap, createEmptyProject, makeComponent, parseProjectFile, serializeProjectFile } from "../app/model.ts";
 import { applyPropertyEdit, buildPropertyRows, propertyColumns, propertyDisplay, propertyIsReadOnly,
   queryPropertyRows, resolvePropertyRow, validatePropertyEdit, nextEditablePropertyCell, propertyVisibleRange } from "../app/property-editor.ts";
 import { getEffectiveBundleConductorLength } from "../app/bundle-conductors.ts";
@@ -23,7 +23,7 @@ function fixture() {
   cable.designator = "W1"; cable.length = "600 mm";
   bundle.designator = "B1"; bundle.length = "600 mm";
   for (const node of [cable, bundle]) {
-    node.wireCount = 2; node.conductorIds = [`${node.id}-a`, `${node.id}-b`]; node.wireLabels = ["CAN_H", "CAN_L"]; node.colors = ["BUWH", "RD"];
+    node.wireCount = 2; node.conductorIds = [`${node.id}-a`, `${node.id}-b`]; node.conductorUuids = createConductorUuidMap(node.conductorIds); node.wireLabels = ["CAN_H", "CAN_L"]; node.colors = ["BUWH", "RD"];
   }
   wire.length = "0.2 m"; wire.colors = ["BK"];
   bundle.conductorLengthOverrides = { "b1-a": "750 mm" };

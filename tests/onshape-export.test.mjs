@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { buildBomRows } from "../app/bom.ts";
@@ -19,7 +18,9 @@ import {
   serializeOnshapeCableWireCsv,
 } from "../app/onshape-export.ts";
 import {
+  createConductorUuidMap,
   createEmptyProject,
+  isUuidV4,
   makeComponent,
 } from "../app/model.ts";
 import { parseLengthMeters, parseLengthMillimeters } from "../app/length.ts";
@@ -98,11 +99,16 @@ function addCable(
     { length: count },
     (_, index) => `${id}-conductor-${index + 1}`,
   );
+  component.conductorUuids = createConductorUuidMap(component.conductorIds);
   component.wireLabels = Array.from({ length: count }, () => "");
   component.colors = Array.from({ length: count }, () => "RD");
   component.gauge = "24 AWG";
   project.components.push(component);
   return component;
+}
+
+function uuidFor(component, index) {
+  return component.conductorUuids[component.conductorIds[index]];
 }
 
 function link(project, id, fromNode, fromPort, toNode, toPort) {
@@ -144,7 +150,7 @@ test("standalone wire exports exactly once with physical pins, not pin labels", 
   const result = buildOnshapeCableWireExport(project);
   assert.equal(result.rows.length, 1);
   assert.deepEqual(result.rows[0], {
-    wireId: onshapeWireId(cable.id, cable.conductorIds[0]),
+    wireId: onshapeWireId(uuidFor(cable, 0)),
     fromRef: "J1",
     toRef: "J2",
     fromPin: "1",
@@ -159,22 +165,7 @@ test("standalone wire exports exactly once with physical pins, not pin labels", 
   assert.deepEqual(result.issues, []);
 });
 
-/** Remove the last column while preserving all other bytes, quotes and newlines. */
-function withoutInsulationColumn(csv) {
-  let quoted = false, start = 0, lastComma = -1, output = "";
-  for (let index = 0; index < csv.length; index++) {
-    if (csv[index] === '"') {
-      if (quoted && csv[index + 1] === '"') index++;
-      else quoted = !quoted;
-    } else if (!quoted && csv[index] === ",") lastComma = index;
-    else if (!quoted && csv[index] === "\r" && csv[index + 1] === "\n") {
-      output += csv.slice(start, lastComma) + "\r\n"; start = index + 2; index++;
-    }
-  }
-  return output;
-}
-
-test("first thirteen CSV columns remain byte-identical to the verified exporter", () => {
+test("all established CSV values except Wire ID remain unchanged", () => {
   const { project, j1, j2 } = completeProject("bundle", 2);
   j1.mpn = "09 32,040 3001";
   j2.mpn = "10142708-040021LF";
@@ -188,11 +179,14 @@ test("first thirteen CSV columns remain byte-identical to the verified exporter"
   }
   project.components.find((component) => component.kind === "bundle").colors = ["BUWH", "WHBU"];
   const csv = serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows);
-  // Captured from commit 2b30d20 before changing any UI or issue messages.
-  assert.equal(
-    createHash("sha256").update(withoutInsulationColumn(csv), "utf8").digest("hex"),
-    "2a22fdbff703918d28416574f67528709bc4f2047177ce7df634342aaf5b86df",
-  );
+  const withoutChangedColumns = parseCsv(csv).map((record) => record.slice(1, -1));
+  assert.deepEqual(withoutChangedColumns, [
+    EXPECTED_HEADERS.slice(1, -1),
+    ["J1", "1", "J2", "1", "24", "blue/white", j1.mpn, j2.mpn,
+      "09 33 000 6102", "10158070-121LF", "7.5", "5.7"],
+    ["J1", "2", "J2", "2", "24", "white/blue", j1.mpn, j2.mpn,
+      "09 33 000 6102", "10158070-121LF", "7.5", "5.7"],
+  ]);
 });
 
 test("bundle exports one row per conductor with stable IDs independent of array order", () => {
@@ -233,7 +227,7 @@ test("endpoint orientation exactly matches Connection Mapping normalization", ()
   assert.equal(exported.fromPin, String(mapping.from.physicalPin));
   assert.equal(exported.toRef, mapping.to.connectorDesignator);
   assert.equal(exported.toPin, String(mapping.to.physicalPin));
-  assert.equal(exported.wireId, onshapeWireId(cable.id, cable.conductorIds[0]));
+  assert.equal(exported.wireId, onshapeWireId(uuidFor(cable, 0)));
 });
 
 for (const kind of ["wire", "bundle", "cable"]) {
@@ -259,7 +253,7 @@ for (const kind of ["wire", "bundle", "cable"]) {
     assert.equal(onshapeExportHasErrors(result), false);
     for (let index = 0; index < count; index += 1) {
       const row = result.rows[index];
-      assert.equal(row.wireId, onshapeWireId(cable.id, cable.conductorIds[index]));
+      assert.equal(row.wireId, onshapeWireId(uuidFor(cable, index)));
       assert.equal(row.fromPartNo, j1.mpn);
       assert.equal(row.toPartNo, j2.mpn);
       assert.equal(row.fromContactPn, index ? "CAVITY-2" : "09 33 000 6102");
@@ -301,7 +295,7 @@ test("reversed endpoint ordering retains each physical pin's own contact and str
   const originalCsv = serializeOnshapeCableWireCsv(buildOnshapeCableWireExport(project).rows);
   const record = parseCsv(originalCsv)[1];
   assert.deepEqual(record.slice(0, 5), [
-    onshapeWireId(cable.id, cable.conductorIds[0]), "J1", "3", "J5", "10",
+    onshapeWireId(uuidFor(cable, 0)), "J1", "3", "J5", "10",
   ]);
   assert.deepEqual(record.slice(7, 13), [
     "CONNECTOR-B", "CONNECTOR-A", "PN-B", "PN-A", "7.5", "5.7",
@@ -399,7 +393,7 @@ test("all fourteen fields retain alignment and quoting for manufacturing part nu
 
 test("duplicate persistent conductor identities are detected and cannot export", () => {
   const { project, cable } = completeProject("bundle", 2);
-  cable.conductorIds[1] = cable.conductorIds[0];
+  cable.conductorUuids[cable.conductorIds[1]] = uuidFor(cable, 0);
   const result = buildOnshapeCableWireExport(project);
   assert.equal(result.rows.length, 0);
   assert.equal(result.totals.excluded, 2);
@@ -661,9 +655,9 @@ test("rows sort naturally by designator and use stable identity as a determinist
   connectAll(project, w2a, j1, j2, 2);
   const result = buildOnshapeCableWireExport(project);
   assert.deepEqual(result.rows.map((row) => row.wireId), [
-    onshapeWireId(w2a.id, w2a.conductorIds[0]),
-    onshapeWireId(w2b.id, w2b.conductorIds[0]),
-    onshapeWireId(w10.id, w10.conductorIds[0]),
+    onshapeWireId(uuidFor(w2a, 0)),
+    onshapeWireId(uuidFor(w2b, 0)),
+    onshapeWireId(uuidFor(w10, 0)),
   ]);
 });
 
@@ -674,13 +668,13 @@ test("filename is deterministic and safely uses the project title", () => {
   );
 });
 
-test("stable Wire IDs safely encode non-ASCII and separator characters", () => {
-  const first = onshapeWireId("组件/一", "conductor,\"A\"");
-  const second = onshapeWireId("组件/一", "conductor,\"A\"");
-  assert.equal(first, second);
-  assert.match(first, /^WF-[A-Za-z0-9._-]+$/);
-  assert.doesNotMatch(first, /[,"/\s]/);
-  assert.notEqual(first, onshapeWireId("组件/一", "conductor-A"));
+test("Wire IDs are undecorated UUID v4 values", () => {
+  const { project } = completeProject("bundle", 3);
+  const ids = buildOnshapeCableWireExport(project).rows.map((row) => row.wireId);
+  assert.equal(new Set(ids).size, 3);
+  assert.ok(ids.every(isUuidV4));
+  assert.ok(ids.every((id) => onshapeWireId(id) === id));
+  assert.ok(ids.every((id) => !id.includes("WF-") && !id.includes("conductor")));
 });
 
 test("editor exposes a local preview/download flow with fatal and warning gates", async () => {
@@ -700,6 +694,7 @@ test("editor exposes a local preview/download flow with fatal and warning gates"
   assert.match(dialog, /CSV preview/);
   assert.match(dialog, /onshapeExport\.rows\.slice\(0, 25\)/);
   assert.match(dialog, /ONSHAPE_CSV_PREVIEW_COLUMNS\.map/);
+  assert.match(dialog, /title=\{column\.key === "wireId" \? row\.wireId : undefined\}/);
   assert.match(dialog, /\{candidate\.message\}/);
   assert.match(dialog, /onshapeExportHasErrors\(onshapeExport\)/);
   assert.match(dialog, /onshapeExportHasWarnings\(onshapeExport\)/);
